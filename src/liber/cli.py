@@ -10,6 +10,7 @@ import typer
 from liber.check import run_checks
 from liber.config import resolve_vault, write_user_config
 from liber.errors import LiberError
+from liber.extract import extract_pending
 from liber.inbox import add_files, add_note, inbox_status
 from liber.scaffold import default_skills_dir, init_vault
 
@@ -102,3 +103,17 @@ def status_cmd() -> None:
             typer.echo(f"  {rel}")
     else:
         typer.echo("Sync conflicts: none")
+
+
+@app.command("extract")
+def extract_cmd() -> None:
+    """Convert waiting PDF, Word, and HTML documents in inbox/ to Markdown text."""
+    with handle_errors():
+        results = extract_pending(resolve_vault())
+    if not results:
+        typer.echo("Nothing to extract.")
+        return
+    labels = {"extracted": "extracted", "no-text": "no text found", "failed": "failed"}
+    for result in results:
+        suffix = f" ({result.detail})" if result.detail else ""
+        typer.echo(f"{result.name} — {labels[result.state]}{suffix}")
