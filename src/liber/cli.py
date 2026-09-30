@@ -1,6 +1,7 @@
 """Thin command-line layer: parse args, call modules, print results."""
 
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -9,12 +10,21 @@ import typer
 from liber.check import run_checks
 from liber.config import resolve_vault, write_user_config
 from liber.errors import LiberError
+from liber.inbox import add_files, add_note, inbox_status
 from liber.scaffold import default_skills_dir, init_vault
 
 app = typer.Typer(
     no_args_is_help=True,
     help="liber: a personal knowledge base about you, readable by any LLM or agent.",
 )
+
+STATE_LABELS = {
+    "ready": "ready",
+    "pending-extraction": "needs extraction (run liber extract)",
+    "extracted": "extracted",
+    "no-text": "no text found",
+    "unsupported-folder": "folder — move its files into inbox/ directly",
+}
 
 
 @app.callback()
@@ -55,3 +65,40 @@ def check_cmd() -> None:
         typer.echo(str(problem))
     typer.echo(f"{len(problems)} problem(s) found")
     raise typer.Exit(1)
+
+
+@app.command("note")
+def note_cmd(text: Annotated[list[str], typer.Argument(help="The note; quotes optional")]) -> None:
+    """Add a quick note to inbox.md."""
+    with handle_errors():
+        line = add_note(resolve_vault(), " ".join(text), datetime.now())
+    typer.echo(f"Added to inbox.md: {line}")
+
+
+@app.command("add")
+def add_cmd(files: Annotated[list[Path], typer.Argument(help="Documents to copy into inbox/")]) -> None:
+    """Copy documents into inbox/ for the next /ingest."""
+    with handle_errors():
+        vault = resolve_vault()
+        added = add_files(vault, [f.expanduser() for f in files])
+    for path in added:
+        typer.echo(f"Added {path.relative_to(vault).as_posix()}")
+
+
+@app.command("status")
+def status_cmd() -> None:
+    """Show what's waiting in the inbox."""
+    with handle_errors():
+        status = inbox_status(resolve_vault())
+    typer.echo(f"Inbox notes: {len(status.notes)}")
+    for line in status.notes:
+        typer.echo(f"  {line}")
+    typer.echo(f"Documents: {len(status.documents)}")
+    for doc in status.documents:
+        typer.echo(f"  {doc.name} — {STATE_LABELS[doc.state]}")
+    if status.conflicts:
+        typer.echo("Sync conflicts:")
+        for rel in status.conflicts:
+            typer.echo(f"  {rel}")
+    else:
+        typer.echo("Sync conflicts: none")
