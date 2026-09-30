@@ -6,7 +6,8 @@ from typing import Annotated
 
 import typer
 
-from liber.config import write_user_config
+from liber.check import run_checks
+from liber.config import resolve_vault, write_user_config
 from liber.errors import LiberError
 from liber.scaffold import default_skills_dir, init_vault
 
@@ -40,3 +41,17 @@ def init_cmd(path: Annotated[Path, typer.Argument(help="Where to create the vaul
     typer.echo(f"Created liber vault at {target}")
     typer.echo(f"Default vault set in {config}")
     typer.echo("Next: open it in Obsidian, add notes to inbox.md, then run /ingest in Claude Code there.")
+
+
+@app.command("check")
+def check_cmd() -> None:
+    """Validate the vault: frontmatter, structure, links, sync conflicts, AGENTS.md size."""
+    with handle_errors():
+        problems = run_checks(resolve_vault())
+    if not problems:
+        typer.echo("✓ no problems found")
+        return
+    for problem in problems:
+        typer.echo(str(problem))
+    typer.echo(f"{len(problems)} problem(s) found")
+    raise typer.Exit(1)
