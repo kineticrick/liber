@@ -75,11 +75,23 @@ alone.
 
 ### 2.1 Sync (Android)
 
-- **Syncthing** syncs the vault folder between phone and desktop.
-- **git runs only on the desktop.** The phone never commits.
-- `.stignore` excludes `.git/` and `.claude/`.
-- Syncthing `*.sync-conflict-*` files are detected by `liber check` and resolved during
-  ingest.
+- **Obsidian Sync** (the user already has the Plus plan) syncs the vault as its own
+  **separate remote vault** between phone and desktop.
+- **git runs only on the desktop.** The phone never commits. Obsidian Sync does not
+  sync hidden folders such as `.git/` and `.claude/`, so no ignore file is needed.
+- In Obsidian Sync settings, enable syncing of **PDFs and other file types**, so that
+  documents saved into `inbox/` on the phone reach the desktop.
+- Obsidian Sync's version history is a second safety net alongside git.
+- **Storage:** original documents in `sources/documents/` count against the Sync quota.
+  If that becomes a problem, exclude `sources/documents/` in Sync's excluded folders.
+  The originals stay in git on the desktop.
+- **Conflicts:** Obsidian Sync normally merges Markdown edits automatically. When it
+  instead produces conflict copies, `liber check` detects them, and they are resolved
+  during ingest. The exact naming of those copies must be confirmed against current
+  Obsidian Sync behavior during implementation. The match pattern lives in `liber.toml`
+  (`[sync] conflict_patterns`) so it can be adjusted without code changes.
+- **Optional seeding:** notes from the user's existing Obsidian vault can be copied into
+  `inbox/` to be ingested like any other document.
 
 ## 3. Vault layout and conventions
 
@@ -168,6 +180,9 @@ schema_version = 1
 [limits]
 agents_md_max_tokens = 2000
 
+[sync]
+conflict_patterns = ["*conflict*"]   # confirm Obsidian Sync naming during implementation
+
 [folders]
 core      = { type = "core" }
 career    = { type = "career" }
@@ -188,7 +203,7 @@ log       = { type = "log" }
 
 | Command | Behavior |
 |---|---|
-| `liber init <path>` | Creates the vault (layout, templates, starter `AGENTS.md`, `CLAUDE.md`, `README.md`, `liber.toml`, `.gitignore`, `.stignore`), links the skills into `.claude/skills/`, runs `git init`, makes the initial commit, and writes the user config. Refuses to run on a non-empty directory. |
+| `liber init <path>` | Creates the vault (layout, templates, starter `AGENTS.md`, `CLAUDE.md`, `README.md`, `liber.toml`, `.gitignore`), links the skills into `.claude/skills/`, runs `git init`, makes the initial commit, and writes the user config. Refuses to run on a non-empty directory. |
 | `liber note "text"` | Appends `- YYYY-MM-DD HH:MM — text` to `inbox.md`. |
 | `liber add <file>…` | Copies files into `inbox/`, adding a suffix on name collision. |
 | `liber status` | Lists waiting inbox notes and documents, each document's extraction state (pending, done, or no text found), and any sync conflicts. |
@@ -282,7 +297,7 @@ It proposes changes (with the same approval rules as ingest), adds questions to
   - install
   - `liber init`
   - Obsidian setup
-  - Syncthing setup on Android (including the `.stignore` rules)
+  - Obsidian Sync setup (separate vault, syncing PDFs and other file types, optional exclusion of `sources/documents/`)
   - the everyday workflow (capture, then `/ingest`, then `bundle` or a connected tool)
   - `/review`
   - command reference
