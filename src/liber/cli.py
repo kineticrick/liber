@@ -3,10 +3,11 @@
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Optional
 
 import typer
 
+from liber.archive import archive_document, archive_notes
 from liber.check import run_checks
 from liber.config import resolve_vault, write_user_config
 from liber.errors import LiberError
@@ -117,3 +118,27 @@ def extract_cmd() -> None:
     for result in results:
         suffix = f" ({result.detail})" if result.detail else ""
         typer.echo(f"{result.name} — {labels[result.state]}{suffix}")
+
+
+@app.command("archive")
+def archive_cmd(
+    name: Annotated[Optional[str], typer.Argument(help="Document in inbox/ to move to sources/documents/")] = None,
+    notes: Annotated[bool, typer.Option("--notes", help="Archive the notes in inbox.md instead")] = False,
+    count: Annotated[Optional[int], typer.Option("--count", help="With --notes: archive only the first N notes")] = None,
+) -> None:
+    """Move a processed item out of the inbox into sources/. Prints the final path(s)."""
+    with handle_errors():
+        if (name is None) == (not notes):
+            raise LiberError("give either a document name or --notes (not both)")
+        if count is not None and not notes:
+            raise LiberError("--count only applies with --notes")
+        vault = resolve_vault()
+        if notes:
+            dest = archive_notes(vault, datetime.now(), count)
+            moved = [dest] if dest else []
+        else:
+            moved = archive_document(vault, name)
+    if not moved:
+        typer.echo("No notes to archive.")
+    for path in moved:
+        typer.echo(path.relative_to(vault).as_posix())
