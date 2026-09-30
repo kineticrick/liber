@@ -181,7 +181,7 @@ schema_version = 1
 agents_md_max_tokens = 2000
 
 [sync]
-conflict_patterns = ["*conflict*"]   # confirm Obsidian Sync naming during implementation
+conflict_patterns = ["*conflicted copy*", "*.sync-conflict-*"]   # matched case-insensitively against file names; confirm Obsidian Sync naming against real behavior
 
 [folders]
 core      = { type = "core" }
