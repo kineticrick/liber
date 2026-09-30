@@ -1,0 +1,21 @@
+# liber vault configuration. Claude updates [folders] when you approve a structural change.
+schema_version = 1
+
+[limits]
+# AGENTS.md size target, estimated at 4 characters per token.
+agents_md_max_tokens = 2000
+
+[sync]
+# File names treated as sync-conflict copies (case-insensitive glob patterns).
+conflict_patterns = ["*conflicted copy*", "*.sync-conflict-*"]
+
+# Every Markdown file in a listed folder must have `type:` equal to that folder's type.
+# The longest matching folder wins, so career/projects/*.md are "project".
+[folders]
+core = { type = "core" }
+career = { type = "career" }
+"career/projects" = { type = "project" }
+people = { type = "person" }
+interests = { type = "interest" }
+goals = { type = "goal" }
+log = { type = "log" }
