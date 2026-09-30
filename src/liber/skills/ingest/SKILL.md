@@ -33,7 +33,8 @@ Present one numbered list of proposed changes, grouped like this:
 - **Content edits.** For each one: the target file, whether it adds, updates, or creates a new file, and the exact text.
 - **⚠️ Contradictions.** Questions where the item disagrees with the vault, for example "career/timeline.md says grad school ended 2015, but this is dated 2014. Which is right?"
 - **New people.** A new `people/` file for each person.
-- **Log entries.**
+- **Log entries.** Dated events for `log/<YYYY>.md`, newest first, e.g. `- 2014-05 — Finished my master's thesis. (src: [[thesis-summary.md]])`.
+- **Open questions.** Gaps this item reveals (something mentioned but never explained), phrased as questions for `open-questions.md`.
 - **Structural suggestions,** kept separate from content: a new top-level folder when something has no good home, splitting a sprawling file, a new frontmatter field, a new template.
 
 Example:
@@ -67,7 +68,7 @@ Then stop and wait. The owner answers in plain language, for example "all but 2"
 
 ## 3. Wrap up
 
-1. For each gap you noticed, such as something mentioned but never explained, add a line to `open-questions.md`: `- [YYYY-MM-DD] <question> (from [[<source name>]])`. Commit with `ingest: open questions`.
+1. Add the open questions the owner approved to `open-questions.md`, one line each: `- [YYYY-MM-DD] <question> (from [[<source name>]])`. Commit with `ingest: open questions`.
 2. If anything significant changed, propose a refresh of the **Summary** in `AGENTS.md`.
    - Show the full new text and get approval separately.
    - Keep it within the size limit; `liber check` enforces this.
