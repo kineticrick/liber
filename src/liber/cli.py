@@ -8,7 +8,9 @@ from typing import Annotated, Optional
 import typer
 
 from liber.archive import archive_document, archive_notes
+from liber.bundle import build_bundle
 from liber.check import run_checks
+from liber.clipboard import copy_to_clipboard
 from liber.config import resolve_vault, write_user_config
 from liber.errors import LiberError
 from liber.extract import extract_pending
@@ -142,3 +144,23 @@ def archive_cmd(
         typer.echo("No notes to archive.")
     for path in moved:
         typer.echo(path.relative_to(vault).as_posix())
+
+
+@app.command("bundle")
+def bundle_cmd(
+    topics: Annotated[Optional[str], typer.Option("--topics", help="Comma-separated top-level folders, e.g. career,goals")] = None,
+    max_sensitivity: Annotated[str, typer.Option("--max-sensitivity", help="public, personal, or private")] = "personal",
+    copy: Annotated[bool, typer.Option("--copy", help="Copy to the clipboard instead of printing")] = False,
+) -> None:
+    """Combine AGENTS.md and vault files into one Markdown document for any chatbot."""
+    with handle_errors():
+        topic_list = [t.strip() for t in topics.split(",") if t.strip()] if topics else None
+        bundle = build_bundle(resolve_vault(), topic_list, max_sensitivity)
+    summary = f"{len(bundle.included)} file(s) included, {len(bundle.excluded)} excluded above '{max_sensitivity}' or without valid sensitivity"
+    if copy and copy_to_clipboard(bundle.text):
+        typer.echo(f"Copied to clipboard: {summary}", err=True)
+        return
+    if copy:
+        typer.echo("warning: no clipboard tool worked (install wl-copy or xclip); printing instead", err=True)
+    typer.echo(bundle.text)
+    typer.echo(summary, err=True)
