@@ -28,7 +28,7 @@ Planned later: an MCP access server so agents can query the vault directly, and 
 
 ## Install
 
-Requires [uv](https://docs.astral.sh/uv/), git, and [Claude Code](https://claude.com/claude-code). Optional: `wl-copy` or `xclip` for `liber bundle --copy`.
+Requires [uv](https://docs.astral.sh/uv/), git (with `user.name` and `user.email` set, since ingest makes commits), and [Claude Code](https://claude.com/claude-code). Optional: `wl-copy` or `xclip` for `liber bundle --copy`.
 
 ```bash
 git clone <this repo> ~/code/python/liber

@@ -100,8 +100,19 @@ def _link_targets(vault: Path) -> set[str]:
     return names
 
 
+def _bare_name_matches(vault: Path) -> dict[str, set[str]]:
+    matches: dict[str, set[str]] = {}
+    for path in _walk_files(vault):
+        rel = path.relative_to(vault).as_posix()
+        matches.setdefault(path.name, set()).add(rel)
+        if path.suffix == ".md":
+            matches.setdefault(path.stem, set()).add(rel)
+    return matches
+
+
 def _link_problems(vault: Path) -> list[Problem]:
     targets = _link_targets(vault)
+    bare = _bare_name_matches(vault)
     files = [read_vault_file(vault, vault / n) for n in _LINK_SCAN_ROOT_FILES if (vault / n).is_file()]
     files += iter_content_files(vault)
     problems = []
@@ -111,6 +122,14 @@ def _link_problems(vault: Path) -> list[Problem]:
             target = match.group(1).strip()
             if target not in targets and target.removesuffix(".md") not in targets:
                 problems.append(Problem(vf.rel, "broken-link", f"[[{target}]] doesn't match any file in the vault"))
+                continue
+            if "/" not in target:
+                found = sorted(bare.get(target, set()) | bare.get(target.removesuffix(".md"), set()))
+                if len(found) > 1:
+                    hint = found[0].removesuffix(".md")
+                    problems.append(Problem(
+                        vf.rel, "ambiguous-link",
+                        f"[[{target}]] matches more than one file: {', '.join(found)}; use a path link like [[{hint}]]"))
     return problems
 
 

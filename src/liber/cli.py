@@ -157,10 +157,15 @@ def bundle_cmd(
         topic_list = [t.strip() for t in topics.split(",") if t.strip()] if topics else None
         bundle = build_bundle(resolve_vault(), topic_list, max_sensitivity)
     summary = f"{len(bundle.included)} file(s) included, {len(bundle.excluded)} excluded above '{max_sensitivity}' or without valid sensitivity"
+    excluded_lines = [f"excluded: {rel} ({reason})" for rel, reason in bundle.excluded]
     if copy and copy_to_clipboard(bundle.text):
         typer.echo(f"Copied to clipboard: {summary}", err=True)
+        for line in excluded_lines:
+            typer.echo(line, err=True)
         return
     if copy:
         typer.echo("warning: no clipboard tool worked (install wl-copy or xclip); printing instead", err=True)
     typer.echo(bundle.text)
     typer.echo(summary, err=True)
+    for line in excluded_lines:
+        typer.echo(line, err=True)

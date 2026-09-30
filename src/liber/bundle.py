@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from liber.check import find_conflicts
 from liber.docs import VaultFile, iter_content_files, read_vault_file
 from liber.errors import LiberError
 from liber.vaultconfig import SENSITIVITY_LEVELS, load_vault_config, sensitivity_rank
@@ -29,7 +30,8 @@ def build_bundle(vault: Path, topics: list[str] | None = None, max_sensitivity: 
     limit = sensitivity_rank(max_sensitivity)
     if limit is None:
         raise LiberError(f"--max-sensitivity must be one of {', '.join(SENSITIVITY_LEVELS)}")
-    available = load_vault_config(vault).top_level_folders
+    cfg = load_vault_config(vault)
+    available = cfg.top_level_folders
     chosen = available if topics is None else topics
     unknown = [t for t in chosen if t not in available]
     if unknown:
@@ -43,8 +45,9 @@ def build_bundle(vault: Path, topics: list[str] | None = None, max_sensitivity: 
 
     included: list[VaultFile] = []
     excluded: list[tuple[str, str]] = []
+    conflicts = set(find_conflicts(vault, cfg.conflict_patterns))
     for vf in candidates:
-        reason = _exclusion_reason(vf, limit)
+        reason = "sync-conflict copy" if vf.rel in conflicts else _exclusion_reason(vf, limit)
         if reason:
             excluded.append((vf.rel, reason))
         else:

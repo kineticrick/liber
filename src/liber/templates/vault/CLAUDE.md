@@ -21,7 +21,7 @@ This is a **liber** vault: a knowledge base about its owner ("I" and "me" in eve
   ```
   Sensitivity is per file. Put more sensitive material in its own file. New files default to `personal`; confirm with the owner.
 - **First person**, in the owner's voice.
-- **Facts carry dates and sources**, for example `- Led the payments migration at Acme (2019–2021). (src: [[thesis.pdf]])`.
+- **Facts carry dates and sources**, for example `- Led the payments migration at Acme (2019–2021). (src: [[sources/documents/thesis.pdf]])`.
 - **Never delete facts silently.** Superseded facts become history, for example `- *Previously* lived in Denver (until 2024).`
 - **People** are linked by name, for example `[[Sam Chen]]`, and each has `people/Sam Chen.md` based on `_templates/person.md`. Keep notes about others factual and kind.
 - **Log** entries go in `log/<YYYY>.md`, newest first, for example `- 2026-09-30 — Started liber.`

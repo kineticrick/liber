@@ -5,12 +5,13 @@ The skills can't be unit-tested, so run through this checklist after changing ei
 ## Setup
 
 ```bash
+export XDG_CONFIG_HOME=$(mktemp -d)
 export LIBER_VAULT=/tmp/liber-manual-test
 rm -rf "$LIBER_VAULT"
 uv run liber init "$LIBER_VAULT"
 ```
 
-`liber init` also points `~/.config/liber/config.toml` at the test vault. See Cleanup to point it back.
+`XDG_CONFIG_HOME` keeps this test from touching your real `~/.config/liber`.
 
 Add a fact that the sample document contradicts:
 
@@ -36,7 +37,7 @@ Open Claude Code in `$LIBER_VAULT` and run `/ingest`. Check each item:
 
 - [ ] Preflight runs `liber check`, `liber extract`, and `liber status`, and states the processing order (notes first, then the document).
 - [ ] Notes: proposes `core/preferences.md` (likes mentoring, dislikes managing), a new `people/Priya Nair.md`, and an open question or goal about teaching or freelancing. Waits for approval.
-- [ ] Notes archived with `--count 3`; links look like `(src: [[2026-MM]])`.
+- [ ] Notes archived with `--count 3`; links look like `(src: [[sources/notes/2026-MM]])`.
 - [ ] Document: flags ⚠️ the 2014 thesis versus grad school ending in 2015. Doesn't silently change either date.
 - [ ] Proposes a new `people/Ana Ruiz.md` and a skills entry. Marks "enjoys explaining" as inferred or cites it directly.
 - [ ] Asks for the sensitivity of each new file.
@@ -56,6 +57,5 @@ Late-arrival check: during the notes proposal, run `uv run liber note "arrived l
 ```bash
 rm -rf /tmp/liber-manual-test
 unset LIBER_VAULT
+unset XDG_CONFIG_HOME
 ```
-
-If you already have a real vault, set `vault = "/path/to/your/vault"` in `~/.config/liber/config.toml` again.

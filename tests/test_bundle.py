@@ -101,3 +101,22 @@ def test_cli_bundle_copy_fallback(configured_vault, monkeypatch):
     assert result.exit_code == 0
     assert "# liber context bundle" in result.output
     assert "wl-copy" in result.output
+
+
+CONFLICT = "interests/rust (Conflicted copy phone 202609301200).md"
+
+
+def test_bundle_excludes_sync_conflict_copies(vault):
+    write(vault / "interests" / "rust.md", fm("interest", "private"))
+    write(vault / CONFLICT, fm("interest", "personal") + "\nLEAKMARKER\n")
+    bundle = build_bundle(vault)
+    assert "LEAKMARKER" not in bundle.text
+    assert "interests/rust.md" not in bundle.included
+    assert CONFLICT not in bundle.included
+    assert (CONFLICT, "sync-conflict copy") in bundle.excluded
+
+
+def test_cli_bundle_lists_each_exclusion(configured_vault):
+    write(configured_vault / "core" / "typo.md", fm("core", "personl"))
+    result = CliRunner().invoke(app, ["bundle"])
+    assert "excluded: core/typo.md (" in result.output

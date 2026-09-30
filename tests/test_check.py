@@ -121,3 +121,22 @@ def test_cli_without_vault():
     result = CliRunner().invoke(app, ["check"])
     assert result.exit_code == 1
     assert "liber init" in result.output
+
+
+def _sam_vault(vault, link_text):
+    write(vault / "people" / "Sam Chen.md", note(type="person"))
+    write(vault / "sources" / "documents" / "Sam Chen.md", "raw")
+    write(vault / "core" / "x.md", note(body=link_text))
+    return vault
+
+
+def test_bare_link_matching_two_files_is_ambiguous(vault):
+    _sam_vault(vault, "Met [[Sam Chen]].")
+    problems = run_checks(vault)
+    assert [(p.rel, p.kind) for p in problems] == [("core/x.md", "ambiguous-link")]
+    assert "people/Sam Chen" in problems[0].message
+
+
+def test_path_links_are_not_ambiguous(vault):
+    _sam_vault(vault, "[[people/Sam Chen]] and [[sources/documents/Sam Chen]].")
+    assert run_checks(vault) == []
