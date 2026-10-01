@@ -255,8 +255,12 @@ def server_init_cmd(
 ) -> None:
     """Write secrets, the [server] config, systemd user units and the cloudflared config."""
     from liber.server import setup as server_setup
+    from liber.server.settings import secrets_path, user_config_path
 
     with handle_errors():
+        # Check secrets before prompting
+        server_setup.check_secrets_absent(force)
+
         credentials = tunnel_credentials.expanduser() if tunnel_credentials else server_setup.find_tunnel_credentials()
         liber_cmd = server_setup.require_command("liber")
         cloudflared_cmd = server_setup.require_command("cloudflared")
@@ -271,8 +275,12 @@ def server_init_cmd(
         )
     for path in result.written:
         typer.echo(f"wrote {path}")
+    config_path = user_config_path()
     for path in result.kept:
-        typer.echo(f"kept existing {path} (use --force to regenerate)")
+        if path == config_path:
+            typer.echo(f"kept existing {path}")
+        else:
+            typer.echo(f"kept existing {path} (use --force to regenerate)")
     typer.echo("\nNext, run:")
     for step in result.next_steps:
         typer.echo(f"  {step}")

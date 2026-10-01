@@ -55,9 +55,12 @@ def find_tunnel_credentials() -> Path:
 
 def _tunnel_id(credentials: Path) -> str:
     try:
-        return str(json.loads(credentials.read_text(encoding="utf-8"))["TunnelID"])
+        data = json.loads(credentials.read_text(encoding="utf-8"))
+        if "TunnelID" not in data:
+            raise KeyError("TunnelID")
+        return str(data["TunnelID"])
     except (OSError, ValueError, KeyError):
-        return credentials.stem
+        raise LiberError(f"{credentials} is not a cloudflared tunnel credentials file (no TunnelID); run `cloudflared tunnel create liber`")
 
 
 def _server_block(base_url: str, port: int, github_login: str) -> str:
@@ -111,6 +114,14 @@ def _write_if_new(path: Path, content: str, force: bool, written: list[Path], ke
     written.append(path)
 
 
+def check_secrets_absent(force: bool) -> None:
+    """Raise LiberError if secrets exist and force is False."""
+    if secrets_path().exists() and not force:
+        raise LiberError(
+            f"{secrets_path()} already exists; rerun with --force to replace it (this logs out every connected app)"
+        )
+
+
 def init_server(
     *,
     github_login: str,
@@ -123,26 +134,39 @@ def init_server(
     port: int = DEFAULT_PORT,
     force: bool = False,
 ) -> InitResult:
+    # === VALIDATION PHASE: All checks first, no writes ===
     base_url = base_url.strip().rstrip("/")
     hostname = urlparse(base_url).hostname
     if not base_url.startswith("https://") or not hostname:
         raise LiberError("the public URL must start with https://, e.g. https://liber.example.com")
     if not github_login.strip() or not github_client_id.strip() or not github_client_secret.strip():
         raise LiberError("the GitHub login, client ID and client secret are all required")
+
     config = user_config_path()
     if not config.is_file():
         raise LiberError(f"{config} not found; run `liber init <path>` to create your vault first")
-    if secrets_path().exists() and not force:
-        raise LiberError(
-            f"{secrets_path()} already exists; rerun with --force to replace it (this logs out every connected app)"
-        )
 
+    # Parse and validate config TOML
+    try:
+        existing = tomllib.loads(config.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as exc:
+        raise LiberError(f"{config} is not valid TOML: {exc}") from exc
+
+    # Resolve and validate tunnel credentials
+    tunnel_credentials = tunnel_credentials.expanduser().resolve()
+    if not tunnel_credentials.is_file():
+        raise LiberError(f"tunnel credentials file {tunnel_credentials} not found")
+
+    # Validate tunnel ID (will raise LiberError if invalid)
+    _ = _tunnel_id(tunnel_credentials)
+
+    # Check secrets before any writes
+    check_secrets_absent(force)
+
+    # === WRITE PHASE: Config and generated files ===
     written: list[Path] = []
     kept: list[Path] = []
-    write_secrets(Secrets(github_client_id.strip(), github_client_secret.strip(), new_jwt_signing_key(), new_storage_key()))
-    written.append(secrets_path())
 
-    existing = tomllib.loads(config.read_text(encoding="utf-8"))
     if "server" in existing:
         kept.append(config)
     else:
@@ -157,6 +181,11 @@ def init_server(
         tunnel_config, _tunnel_config(_tunnel_id(tunnel_credentials), tunnel_credentials, hostname, port),
         force, written, kept,
     )
+
+    # === SECRETS PHASE: Write secrets last (after all other writes succeed) ===
+    write_secrets(Secrets(github_client_id.strip(), github_client_secret.strip(), new_jwt_signing_key(), new_storage_key()))
+    written.append(secrets_path())
+
     next_steps = [
         "systemctl --user daemon-reload",
         f"systemctl --user enable --now {MCP_UNIT} {TUNNEL_UNIT}",

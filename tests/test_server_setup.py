@@ -113,3 +113,44 @@ def test_cli_server_init(with_config, creds, monkeypatch):
     assert load_secrets().github_client_secret == "topsecretvalue"
     assert "systemctl --user enable --now" in result.output
     assert "topsecretvalue" not in result.output  # hidden prompt: never echoed
+
+
+def test_relative_tunnel_credentials_are_resolved(with_config, creds, monkeypatch):
+    from pathlib import Path
+    monkeypatch.chdir(creds.parent)
+    result = run_init(creds, tunnel_credentials=Path(creds.name))
+    config_path = cloudflared_dir() / "liber.yml"
+    tunnel_config = config_path.read_text()
+    assert f"credentials-file: {creds.resolve()}" in tunnel_config
+
+
+def test_bad_tunnel_credentials(with_config, creds):
+    # Missing file
+    with pytest.raises(LiberError, match="not found"):
+        run_init(creds, tunnel_credentials=creds.parent / "missing.json")
+    assert not secrets_path().exists()
+
+    # JSON without TunnelID
+    bad_creds = write(creds.parent / "bad.json", json.dumps({"AccountTag": "x"}))
+    with pytest.raises(LiberError, match="TunnelID"):
+        run_init(creds, tunnel_credentials=bad_creds)
+    assert not secrets_path().exists()
+
+
+def test_cli_refuses_existing_secrets_before_prompting(with_config, creds, monkeypatch):
+    monkeypatch.setattr(server_setup, "require_command", lambda name: f"/usr/bin/{name}")
+    # First init succeeds
+    result = CliRunner().invoke(
+        app, ["server", "init", "--tunnel-credentials", str(creds)],
+        input="https://liber.example.com\nrick\nOv23id\ntopsecretvalue\n",
+    )
+    assert result.exit_code == 0
+
+    # Second init fails before prompting
+    result = CliRunner().invoke(
+        app, ["server", "init", "--tunnel-credentials", str(creds)],
+        input="",
+    )
+    assert result.exit_code == 1
+    assert "--force" in result.output
+    assert "Public URL" not in result.output
