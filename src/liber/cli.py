@@ -284,3 +284,16 @@ def server_init_cmd(
     typer.echo("\nNext, run:")
     for step in result.next_steps:
         typer.echo(f"  {step}")
+
+
+@server_app.command("doctor")
+def server_doctor_cmd() -> None:
+    """Check the HTTP server end to end, the way claude.ai and ChatGPT will see it."""
+    from liber.server import doctor
+
+    with doctor.default_http_client() as http:
+        checks = doctor.run_doctor(http=http, systemctl=doctor.systemctl_active)
+    for check in checks:
+        typer.echo(str(check))
+    if any(not c.ok and not c.warning for c in checks):
+        raise typer.Exit(1)
