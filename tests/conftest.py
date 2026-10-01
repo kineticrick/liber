@@ -15,6 +15,8 @@ def isolated_env(monkeypatch, tmp_path_factory):
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
     for var in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
         monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("XDG_DATA_HOME", str(home / ".local" / "share"))
+    monkeypatch.setenv("FASTMCP_CHECK_FOR_UPDATES", "off")
     return home
 
 
@@ -40,3 +42,8 @@ def vault(tmp_path, fake_skills):
 def configured_vault(vault, monkeypatch):
     monkeypatch.setenv("LIBER_VAULT", str(vault))
     return vault
+
+
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"
