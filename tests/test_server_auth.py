@@ -17,7 +17,8 @@ from liber.cli import app
 from liber.config import user_config_path
 from liber.server import auth as auth_module
 from liber.server.auth import (
-    HTTP_OPTIONS, PRIVATE_PAGE, AllowListGitHubProvider, build_http_server, logout_all, oauth_dir,
+    HTTP_OPTIONS, PRIVATE_PAGE, AllowListGitHubProvider, build_http_server, encrypted_file_storage, logout_all,
+    oauth_dir,
 )
 from liber.server.settings import (
     Ceilings, Secrets, ServerSettings, load_secrets, new_jwt_signing_key, new_storage_key, secrets_path, write_secrets,
@@ -194,6 +195,68 @@ async def test_rotated_signing_key_invalidates_oauth_tokens(store):
     async with serve(make_server(store, jwt_key=new_jwt_signing_key(), storage=storage)) as http:
         r = await http.post("/mcp", headers={**H, "authorization": f"Bearer {access}"}, json=rpc("tools/list"))
     assert r.status_code == 401
+
+
+async def test_allow_list_removal_rejects_existing_oauth_token(configured_vault, store):
+    storage, key = MemoryStore(), new_jwt_signing_key()
+    async with serve(make_server(store, jwt_key=key, storage=storage)) as http:
+        access = await oauth_access_token(http)
+        headers = {**H, "authorization": f"Bearer {access}"}
+        assert (await http.post("/mcp", headers=headers, json=rpc("tools/list"))).status_code == 200
+    keys = Secrets("Ov23test", "x" * 40, key, new_storage_key())
+    narrowed = build_http_server(
+        ServerSettings(BASE, "127.0.0.1", 8765, ("someone",), Ceilings()), keys, token_store=store,
+        client_storage=storage, provider_cls=MockedGitHubProvider,
+        http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(github_api)), require_consent=False,
+    )
+    async with serve(narrowed) as http:
+        r = await http.post("/mcp", headers={**H, "authorization": f"Bearer {access}"}, json=rpc("tools/list"))
+    assert r.status_code == 401
+
+
+async def test_encrypted_file_storage_roundtrip(configured_vault, store, tmp_path):
+    root = tmp_path / "oauth"
+    jwt_key, storage_key = new_jwt_signing_key(), new_storage_key()
+
+    def server():
+        keys = Secrets("Ov23test", "x" * 40, jwt_key, storage_key)
+        return build_http_server(
+            SETTINGS, keys, token_store=store, client_storage=encrypted_file_storage(root, storage_key),
+            provider_cls=MockedGitHubProvider,
+            http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(github_api)), require_consent=False,
+        )
+
+    async with serve(server()) as http:
+        access = await oauth_access_token(http)
+    files = [p for p in root.rglob("*") if p.is_file()]
+    assert files
+    for path in files:
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600, path
+        data = path.read_bytes()
+        assert b"gho_rick" not in data and b"Claude Test" not in data
+    async with serve(server()) as http:
+        r = await http.post("/mcp", headers={**H, "authorization": f"Bearer {access}"}, json=rpc("tools/list"))
+    assert r.status_code == 200
+
+
+def test_consent_is_required_by_default(store):
+    keys = Secrets("Ov23test", "x" * 40, new_jwt_signing_key(), new_storage_key())
+    mcp = build_http_server(SETTINGS, keys, token_store=store, client_storage=MemoryStore())
+    assert mcp.auth.server._require_authorization_consent is True
+
+
+def test_run_http_disables_access_log(monkeypatch):
+    seen = {}
+
+    class Stub:
+        def run(self, **kwargs):
+            seen.update(kwargs)
+
+    monkeypatch.setattr(auth_module, "build_http_server", lambda settings, secrets: Stub())
+    auth_module.run_http(SETTINGS, Secrets("cid", "csecret", new_jwt_signing_key(), new_storage_key()))
+    assert seen["uvicorn_config"] == {"access_log": False}
+    assert seen["show_banner"] is False
+    assert all(seen[k] == v for k, v in HTTP_OPTIONS.items())
 
 
 def test_logout_all_rotates_key_and_clears_storage():

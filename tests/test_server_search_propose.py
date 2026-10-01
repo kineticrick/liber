@@ -1,3 +1,4 @@
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -176,3 +177,36 @@ def test_proposals_are_invisible_to_tools(vault):
 def test_proposals_are_ready_for_ingest(vault):
     out = VaultView(vault, "personal").propose("fact", None, "x", NOW)
     assert [(d.name, d.state) for d in inbox_documents(vault)] == [(Path(out["file"]).name, "ready")]
+
+
+def test_parallel_proposals_do_not_overwrite_each_other(vault):
+    from concurrent.futures import ThreadPoolExecutor
+
+    barrier = threading.Barrier(8)
+
+    def propose(i):
+        view = VaultView(vault, "personal")
+        barrier.wait()
+        return view.propose(f"fact number {i}", None, "x", NOW)["file"]
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        files = list(pool.map(propose, range(8)))
+    assert len(set(files)) == 8
+    assert len(list((vault / "inbox").glob("proposal-*.md"))) == 8
+    for i, rel in enumerate(files):
+        assert f"fact number {i}\n" in (vault / rel).read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("ceiling", SENSITIVITY_LEVELS)
+def test_hidden_file_names_are_invisible(vault, ceiling):
+    write(vault / "core" / ".draft.md", fm("core", "public", "# Dot\nHIDDENFILEMARK"))
+    write(vault / "core" / "_wip.md", fm("core", "public", "# Under\nHIDDENFILEMARK"))
+    write(vault / "core" / "visible.md", fm("core", "public", "# Vis\nHIDDENFILEMARK"))
+    view = VaultView(vault, ceiling)
+    assert "core/visible.md" in [d["path"] for d in view.list()]
+    assert not {"core/.draft.md", "core/_wip.md"} & {d["path"] for d in view.list()}
+    assert paths(view.search("HIDDENFILEMARK")) == ["core/visible.md"]
+    for hidden in ("core/.draft.md", "core/_wip.md"):
+        with pytest.raises(LiberError):
+            view.read(hidden)
+    assert "HIDDENFILEMARK" in view.read("core/visible.md")

@@ -14,3 +14,15 @@ Known minor issues deferred from the sub-project 1 build reviews (2026-09-30). N
 - **Task 8:** `--topics ","` yields AGENTS-only bundle; copy_to_clipboard untested
 - **Task 9:** "nothing worth keeping" path unclear whether check/commit still run; test doesn't pin `--notes --count` mention
 - **Final review:** `archive --notes` drops headings and flattens indentation in inbox notes; lines inside multi-line HTML comments in inbox.md count as notes; `check` matches wikilinks case-sensitively (Obsidian doesn't).
+
+## Access server (sub-project 2)
+
+Deferred from the final whole-branch review of the access server.
+
+- **settings:** OSError/UnicodeDecodeError reading config or secrets gives a traceback; relative XDG_DATA_HOME accepted; `base_url = "https://"` passes validation
+- **knowledge:** raw newlines in proposal context; snippet offsets can drift for characters whose lowercase changes length; no cap on query terms
+- **app:** no test that unexpected exceptions are masked
+- **tokens:** hand-edited non-ASCII hash raises TypeError (fails closed); malformed entries list as "None"; no lock on concurrent create/revoke; data dir default mode
+- **auth:** callback takes the first `code` param (fails closed); a GitHub outage shows the "private" page and logs login None; no try/finally around the code delete; consent cookie not cleared on refusal; logout-all hides rmtree errors; OAuth dir mode follows umask; GitHub scope is `user` (consider `read:user` after live testing)
+- **setup:** unquoted paths in unit ExecStart / tunnel YAML; json.dumps surrogate escapes are invalid TOML for non-BMP characters; config append not atomic; `_tunnel_id` TypeError for non-object JSON
+- **doctor:** systemctl call has no timeout; local-server failure drops the exception detail; doctor's vault check uses the shell's LIBER_VAULT, which the systemd service may not have

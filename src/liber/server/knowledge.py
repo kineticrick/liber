@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -26,6 +27,8 @@ MAX_SEARCH_LIMIT = 50
 SNIPPET_CHARS = 200
 _MAX_SNIPPETS = 3
 _LABEL_BAD = re.compile(r"[^a-z0-9.-]+")
+_PROPOSE_LOCK = threading.Lock()
+_MAX_NAME_ATTEMPTS = 100
 
 
 class NotFound(LiberError):
@@ -106,7 +109,9 @@ class VaultView:
 
     def _candidates(self) -> list[tuple[Path, str | None]]:
         """(path, forced sensitivity), where None means: use the file's frontmatter."""
-        items: list[tuple[Path, str | None]] = [(p, None) for p in content_paths(self.vault)]
+        items: list[tuple[Path, str | None]] = [
+            (p, None) for p in content_paths(self.vault) if not is_hidden_part(p.name)
+        ]
         items.append((self.vault / "AGENTS.md", None))
         items.append((self.vault / "open-questions.md", "personal"))
         if self._limit >= sensitivity_rank("private"):
@@ -208,19 +213,28 @@ class VaultView:
             raise LiberError(f"context is {len(context)} characters; the limit is {MAX_CONTEXT_CHARS}")
         inbox = self.vault / "inbox"
         inbox.mkdir(exist_ok=True)
-        pending = len(list(inbox.glob("proposal-*.md")))
-        if pending >= MAX_PENDING_PROPOSALS:
-            raise LiberError(
-                f"{pending} proposals are already waiting for review; ask the owner to run /ingest before proposing more"
-            )
         label = proposal_label(client)
-        name = free_name(inbox, f"proposal-{now:%Y-%m-%dT%H-%M-%S}-{label}.md")
         context_line = (context or "").strip() or "none given"
-        (inbox / name).write_text(
+        content = (
             f"<!-- liber proposal -->\n# Proposed update from {label} — {now:%Y-%m-%d %H:%M}\n\n"
-            f"**Context:** {context_line}\n\n{body}\n",
-            encoding="utf-8",
+            f"**Context:** {context_line}\n\n{body}\n"
         )
+        with _PROPOSE_LOCK:
+            pending = len(list(inbox.glob("proposal-*.md")))
+            if pending >= MAX_PENDING_PROPOSALS:
+                raise LiberError(
+                    f"{pending} proposals are already waiting for review; ask the owner to run /ingest before proposing more"
+                )
+            for _ in range(_MAX_NAME_ATTEMPTS):
+                name = free_name(inbox, f"proposal-{now:%Y-%m-%dT%H-%M-%S}-{label}.md")
+                try:
+                    with open(inbox / name, "x", encoding="utf-8") as handle:
+                        handle.write(content)
+                    break
+                except FileExistsError:
+                    continue
+            else:
+                raise LiberError("could not find a free proposal file name; try again")
         log.info("proposal saved: %s (%d characters)", name, len(body))
         return {
             "file": f"inbox/{name}",

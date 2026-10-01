@@ -157,7 +157,11 @@ def build_http_server(
 def run_http(settings: ServerSettings, secrets: Secrets) -> None:
     mcp = build_http_server(settings, secrets)
     log.info("serving %s/mcp on http://%s:%d", settings.base_url, settings.host, settings.port)
-    mcp.run(transport="http", host=settings.host, port=settings.port, show_banner=False, **HTTP_OPTIONS)
+    # The access log goes to stdout and would include OAuth callback query strings.
+    mcp.run(
+        transport="http", host=settings.host, port=settings.port, show_banner=False,
+        uvicorn_config={"access_log": False}, **HTTP_OPTIONS,
+    )
 
 
 def logout_all() -> None:

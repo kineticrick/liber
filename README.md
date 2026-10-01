@@ -140,11 +140,15 @@ The HTTP server runs on your desktop and is reached through a Cloudflare Tunnel,
    - Authorization callback URL: `https://liber.example.com/auth/callback`
 
    Keep the client ID, and generate a client secret.
+
+   Use the same hostname everywhere — the DNS route, the OAuth app URLs, and the public URL you give `liber server init` (its default is `https://liber.kineticrick.com`).
 4. **Configure liber:** run `liber server init`. It asks for the public URL, the GitHub login allowed to connect, and the OAuth app's ID and secret. It then writes:
    - `~/.config/liber/secrets.toml` (mode 600)
    - the `[server]` config
    - two systemd user services
    - `~/.cloudflared/liber.yml`
+
+   `liber server init` needs `liber` and `cloudflared` on your PATH and expects exactly one tunnel credentials file in `~/.cloudflared/` (otherwise pass `--tunnel-credentials <file>`). Re-running it is refused once `secrets.toml` exists; `--force` replaces the secrets and signs out every connected app.
 5. **Start the services:**
    ```bash
    systemctl --user daemon-reload
@@ -170,6 +174,8 @@ liber token revoke voice-backend   # takes effect immediately
 
 `liber logout-all` signs out every cloud app; restart the server afterwards with `systemctl --user restart liber-mcp`.
 
+GitHub sign-ins last up to a year. They end when you run `liber logout-all`, remove the login from `allowed_github_logins`, or revoke the liber OAuth app in GitHub (picked up within about five minutes).
+
 ## Commands
 
 | Command | What it does |
@@ -185,7 +191,7 @@ liber token revoke voice-backend   # takes effect immediately
 | `liber bundle [--topics a,b] [--max-sensitivity personal] [--copy]` | Combine `AGENTS.md` and the selected folders into one Markdown document. Files above the ceiling, or with missing or invalid sensitivity, are left out |
 | `liber serve` | Run the MCP server over stdio for local apps (sees everything) |
 | `liber serve --http` | Run the MCP server over HTTP with GitHub login, for the tunnel (normally run by systemd) |
-| `liber server init` | Set up the HTTP server: secrets, config, systemd services and tunnel config |
+| `liber server init [--force] [--tunnel-credentials <file>]` | Set up the HTTP server: secrets, config, systemd services and tunnel config |
 | `liber server doctor` | Check the HTTP server end to end, as claude.ai and ChatGPT will see it |
 | `liber token create/list/revoke <name>` | Manage service tokens for tools that can't sign in |
 | `liber logout-all` | Sign out every connected cloud app |
