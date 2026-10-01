@@ -3,7 +3,7 @@
 import logging
 import sys
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -19,6 +19,7 @@ from liber.extract import extract_pending
 from liber.inbox import add_files, add_note, inbox_status
 from liber.scaffold import default_skills_dir, init_vault
 from liber.server.settings import load_ceilings
+from liber.server.tokens import TokenStore
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -188,3 +189,35 @@ def serve_cmd() -> None:
         from liber.server.app import build_server
 
         build_server("stdio", load_ceilings()).run(transport="stdio", show_banner=False)
+
+
+token_app = typer.Typer(no_args_is_help=True, help="Manage service tokens for the HTTP server (e.g. the voice backend).")
+app.add_typer(token_app, name="token")
+
+
+@token_app.command("create")
+def token_create_cmd(name: Annotated[str, typer.Argument(help="A label such as voice-backend")]) -> None:
+    """Create a service token. It is printed once; only its hash is stored."""
+    with handle_errors():
+        token = TokenStore.default().create(name, date.today())
+    typer.echo(token)
+    typer.echo(f"Service token '{name}' created. This is the only time it is shown; store it safely.", err=True)
+
+
+@token_app.command("list")
+def token_list_cmd() -> None:
+    """List service tokens (names and creation dates only)."""
+    with handle_errors():
+        tokens = TokenStore.default().list()
+    if not tokens:
+        typer.echo("no service tokens")
+    for info in tokens:
+        typer.echo(f"{info.name}  created {info.created}")
+
+
+@token_app.command("revoke")
+def token_revoke_cmd(name: Annotated[str, typer.Argument(help="The token's name")]) -> None:
+    """Revoke a service token immediately."""
+    with handle_errors():
+        TokenStore.default().revoke(name)
+    typer.echo(f"Revoked service token '{name}'.")
