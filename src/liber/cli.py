@@ -240,3 +240,39 @@ def logout_all_cmd() -> None:
 
         auth.logout_all()
     typer.echo("All OAuth sessions revoked. Restart the server to apply: systemctl --user restart liber-mcp")
+
+
+server_app = typer.Typer(no_args_is_help=True, help="Set up and check the HTTP server for cloud apps.")
+app.add_typer(server_app, name="server")
+
+
+@server_app.command("init")
+def server_init_cmd(
+    force: Annotated[bool, typer.Option("--force", help="Replace existing secrets and generated files")] = False,
+    tunnel_credentials: Annotated[
+        Optional[Path], typer.Option("--tunnel-credentials", help="cloudflared tunnel credentials JSON")
+    ] = None,
+) -> None:
+    """Write secrets, the [server] config, systemd user units and the cloudflared config."""
+    from liber.server import setup as server_setup
+
+    with handle_errors():
+        credentials = tunnel_credentials.expanduser() if tunnel_credentials else server_setup.find_tunnel_credentials()
+        liber_cmd = server_setup.require_command("liber")
+        cloudflared_cmd = server_setup.require_command("cloudflared")
+        base_url = typer.prompt("Public URL", default="https://liber.kineticrick.com")
+        github_login = typer.prompt("GitHub login allowed to connect")
+        client_id = typer.prompt("GitHub OAuth app client ID")
+        client_secret = typer.prompt("GitHub OAuth app client secret", hide_input=True)
+        result = server_setup.init_server(
+            github_login=github_login, github_client_id=client_id, github_client_secret=client_secret,
+            base_url=base_url, tunnel_credentials=credentials, liber_cmd=liber_cmd,
+            cloudflared_cmd=cloudflared_cmd, force=force,
+        )
+    for path in result.written:
+        typer.echo(f"wrote {path}")
+    for path in result.kept:
+        typer.echo(f"kept existing {path} (use --force to regenerate)")
+    typer.echo("\nNext, run:")
+    for step in result.next_steps:
+        typer.echo(f"  {step}")
