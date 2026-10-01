@@ -1,5 +1,7 @@
 """Thin command-line layer: parse args, call modules, print results."""
 
+import logging
+import sys
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +18,7 @@ from liber.errors import LiberError
 from liber.extract import extract_pending
 from liber.inbox import add_files, add_note, inbox_status
 from liber.scaffold import default_skills_dir, init_vault
+from liber.server.settings import load_ceilings
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -169,3 +172,19 @@ def bundle_cmd(
     typer.echo(summary, err=True)
     for line in excluded_lines:
         typer.echo(line, err=True)
+
+
+def _configure_server_logging() -> None:
+    logging.basicConfig(
+        level=logging.INFO, stream=sys.stderr, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
+
+
+@app.command("serve")
+def serve_cmd() -> None:
+    """Run the liber MCP server over stdio, for Claude Code, Claude Desktop and other local apps."""
+    _configure_server_logging()
+    with handle_errors():
+        from liber.server.app import build_server
+
+        build_server("stdio", load_ceilings()).run(transport="stdio", show_banner=False)
