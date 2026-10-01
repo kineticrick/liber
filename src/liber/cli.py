@@ -18,7 +18,7 @@ from liber.errors import LiberError
 from liber.extract import extract_pending
 from liber.inbox import add_files, add_note, inbox_status
 from liber.scaffold import default_skills_dir, init_vault
-from liber.server.settings import load_ceilings
+from liber.server.settings import load_ceilings, load_secrets, load_server_settings
 from liber.server.tokens import TokenStore
 
 app = typer.Typer(
@@ -182,13 +182,22 @@ def _configure_server_logging() -> None:
 
 
 @app.command("serve")
-def serve_cmd() -> None:
-    """Run the liber MCP server over stdio, for Claude Code, Claude Desktop and other local apps."""
+def serve_cmd(
+    http: Annotated[bool, typer.Option("--http", help="Serve over HTTP with GitHub login, for the tunnel")] = False,
+) -> None:
+    """Run the liber MCP server: stdio for local apps (default), or HTTP for cloud apps."""
     _configure_server_logging()
     with handle_errors():
-        from liber.server.app import build_server
+        if http:
+            settings = load_server_settings()
+            secrets = load_secrets()
+            from liber.server import auth
 
-        build_server("stdio", load_ceilings()).run(transport="stdio", show_banner=False)
+            auth.run_http(settings, secrets)
+        else:
+            from liber.server.app import build_server
+
+            build_server("stdio", load_ceilings()).run(transport="stdio", show_banner=False)
 
 
 token_app = typer.Typer(no_args_is_help=True, help="Manage service tokens for the HTTP server (e.g. the voice backend).")
@@ -221,3 +230,13 @@ def token_revoke_cmd(name: Annotated[str, typer.Argument(help="The token's name"
     with handle_errors():
         TokenStore.default().revoke(name)
     typer.echo(f"Revoked service token '{name}'.")
+
+
+@app.command("logout-all")
+def logout_all_cmd() -> None:
+    """Log out every connected cloud app (they will need to sign in with GitHub again)."""
+    with handle_errors():
+        from liber.server import auth
+
+        auth.logout_all()
+    typer.echo("All OAuth sessions revoked. Restart the server to apply: systemctl --user restart liber-mcp")
