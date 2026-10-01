@@ -3,7 +3,6 @@
 import hashlib
 import hmac
 import json
-import os
 import re
 import secrets
 from dataclasses import dataclass
@@ -11,7 +10,7 @@ from datetime import date
 from pathlib import Path
 
 from liber.errors import LiberError
-from liber.server.settings import data_dir
+from liber.server.settings import data_dir, write_private_file
 
 _NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
 
@@ -45,11 +44,8 @@ class TokenStore:
         return [t for t in tokens if isinstance(t, dict)] if isinstance(tokens, list) else []
 
     def _save(self, tokens: list[dict]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump({"tokens": tokens}, handle, indent=2)
-        os.chmod(self.path, 0o600)
+        text = json.dumps({"tokens": tokens}, indent=2)
+        write_private_file(self.path, text)
 
     def create(self, name: str, today: date) -> str:
         if not _NAME.match(name):

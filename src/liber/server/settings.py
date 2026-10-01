@@ -1,10 +1,12 @@
 """Server settings ([server] in config.toml) and secrets (secrets.toml)."""
 
 import base64
+import contextlib
 import json
 import os
 import secrets as pysecrets
 import stat
+import tempfile
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,6 +54,23 @@ def data_dir() -> Path:
     base = os.environ.get("XDG_DATA_HOME")
     root = Path(base) if base else Path.home() / ".local" / "share"
     return root / "liber"
+
+
+def write_private_file(path: Path, text: str) -> None:
+    """Atomically write `text` to `path` with mode 0600 (temp file in the same dir, then os.replace)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(tmp)
+        raise
 
 
 def new_jwt_signing_key() -> str:
@@ -127,10 +146,6 @@ def load_secrets() -> Secrets:
 def write_secrets(secrets: Secrets) -> Path:
     """Write secrets.toml with mode 0600 (JSON string escaping is valid TOML)."""
     path = secrets_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
     body = "".join(f"{key} = {json.dumps(getattr(secrets, key))}\n" for key in SECRET_KEYS)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        handle.write(body)
-    os.chmod(path, 0o600)
+    write_private_file(path, body)
     return path

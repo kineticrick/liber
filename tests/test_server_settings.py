@@ -77,6 +77,17 @@ def test_secrets_roundtrip_and_mode():
     assert load_secrets() == s
 
 
+def test_write_secrets_replaces_wide_mode_file():
+    path = secrets_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('github_client_id = "a"\n', encoding="utf-8")
+    path.chmod(0o644)
+    s = Secrets("cid", "csecret", new_jwt_signing_key(), new_storage_key())
+    write_secrets(s)
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert load_secrets() == s
+
+
 def test_secrets_missing_points_to_server_init():
     with pytest.raises(LiberError, match="liber server init"):
         load_secrets()

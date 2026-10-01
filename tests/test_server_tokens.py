@@ -77,3 +77,14 @@ def test_cli_token_lifecycle():
     again = runner.invoke(app, ["token", "revoke", "laptop"])
     assert again.exit_code == 1 and "error:" in again.output
     assert "no service tokens" in runner.invoke(app, ["token", "list"]).output
+
+
+def test_save_replaces_a_wide_mode_file(tmp_path):
+    path = tmp_path / "tokens.json"
+    path.write_text('{"tokens": []}', encoding="utf-8")
+    path.chmod(0o644)
+    store = TokenStore(path)
+    store.create("test-token", TODAY)
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    tmp_files = list(tmp_path.glob(".*tmp"))
+    assert not tmp_files, f"Expected no temp files, but found: {tmp_files}"
