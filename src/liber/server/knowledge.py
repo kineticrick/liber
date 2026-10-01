@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 
 from liber.check import find_conflicts
-from liber.docs import content_paths, read_vault_file
+from liber.docs import content_paths, is_hidden_part, read_vault_file
 from liber.errors import LiberError
 from liber.vaultconfig import load_vault_config, sensitivity_rank
 
@@ -60,9 +60,12 @@ class VaultView:
         if self._limit >= sensitivity_rank("private"):
             sources = self.vault / "sources"
             if sources.is_dir():
-                items += [
-                    (p, "private") for p in sorted(sources.rglob("*")) if p.suffix.lower() in _SOURCE_SUFFIXES
-                ]
+                for p in sorted(sources.rglob("*")):
+                    if p.suffix.lower() in _SOURCE_SUFFIXES:
+                        # Exclude files in hidden directories under sources/
+                        rel_parts = p.relative_to(self.vault).parts
+                        if not any(is_hidden_part(part) for part in rel_parts[:-1]):
+                            items.append((p, "private"))
         return items
 
     def docs(self) -> dict[str, Doc]:
@@ -76,10 +79,14 @@ class VaultView:
             if rel in conflicts:
                 continue
             try:
-                if not path.is_file() or not path.resolve().is_relative_to(root):
+                if not path.is_file():
+                    continue
+                # A file is visible only if its resolved path equals its original rel (no symlinks)
+                resolved_rel = path.resolve().relative_to(root).as_posix()
+                if resolved_rel != rel:
                     continue
                 vf = read_vault_file(self.vault, path)
-            except (OSError, UnicodeDecodeError):
+            except (OSError, UnicodeDecodeError, ValueError):
                 continue
             sensitivity = forced or (None if vf.parse_error else vf.meta.get("sensitivity"))
             rank = sensitivity_rank(sensitivity)

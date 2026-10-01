@@ -136,6 +136,37 @@ def test_profile(mixed):
     assert "sources" in VaultView(mixed, "private").profile(date(2026, 10, 1))["folders"]
 
 
+def test_symlinks_inside_the_vault_are_invisible(mixed):
+    # Add inbox/pub.md and symlink to it from core
+    write(mixed / "inbox" / "pub.md", fm("core", "public", "INBOXPUB"))
+    os.symlink(mixed / "sources" / "documents" / "claims-public.md", mixed / "core" / "launder-source.md")
+    os.symlink(mixed / "inbox" / "pub.md", mixed / "core" / "launder-inbox.md")
+
+    # Symlinks should never appear in list at any ceiling
+    for ceiling in SENSITIVITY_LEVELS:
+        view = VaultView(mixed, ceiling)
+        paths = {e["path"] for e in view.list()}
+        assert "core/launder-source.md" not in paths
+        assert "core/launder-inbox.md" not in paths
+
+    # read() should raise NotFound for both symlinks at all ceilings
+    for ceiling in SENSITIVITY_LEVELS:
+        view = VaultView(mixed, ceiling)
+        with pytest.raises(NotFound):
+            view.read("core/launder-source.md")
+        with pytest.raises(NotFound):
+            view.read("core/launder-inbox.md")
+
+
+def test_hidden_dirs_under_sources_are_skipped(mixed):
+    write(mixed / "sources" / ".obsidian" / "x.md", "OBSIDIAN-MARK")
+    write(mixed / "sources" / "_tmp" / "y.txt", "TMP-MARK")
+    view = VaultView(mixed, "private")
+    paths = {e["path"] for e in view.list()}
+    assert "sources/.obsidian/x.md" not in paths
+    assert "sources/_tmp/y.txt" not in paths
+
+
 def test_invalid_ceiling(vault):
     with pytest.raises(LiberError, match="ceiling"):
         VaultView(vault, "secret")
