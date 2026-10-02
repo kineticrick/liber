@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import math
 import sys
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -313,6 +314,8 @@ def interview_cmd(
 ) -> None:
     """Have a voice interview that fills your vault (transcript + notes land in inbox/)."""
     _configure_server_logging()
+    for noisy in ("httpx", "httpx2"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     with handle_errors():
         from liber.interview import runner
         from liber.interview.settings import load_anthropic_key, load_voice_keys, save_voice_setup
@@ -345,10 +348,15 @@ def interview_cmd(
             topic=topic, continue_last=continue_last, settings=settings, keys=load_voice_keys(), vault=vault,
             open_browser=not no_browser, announce=typer.echo,
         ))
+    if result.failed:
+        typer.echo("Saving failed; your draft is kept. Run: liber interview --recover")
+        return
     if result.transcript is None:
         typer.echo("Nothing was recorded, so no files were written.")
         return
     typer.echo(f"Transcript: {result.transcript}")
     typer.echo(f"Notes: {result.notes}" if result.notes else
                f"Notes failed; retry with: liber interview --notes {result.transcript}")
+    if result.voice_seconds > 0:
+        typer.echo(f"Voice time: {max(1, math.ceil(result.voice_seconds / 60))} min")
     typer.echo("Next: open Claude Code in your vault and run /ingest.")

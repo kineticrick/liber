@@ -36,6 +36,8 @@ NOTE_MAX_CHARS = 2_000
 class InterviewResult:
     transcript: Path | None
     notes: Path | None
+    failed: bool = False
+    voice_seconds: float = 0.0
 
 
 class InterviewSession:
@@ -185,12 +187,14 @@ class InterviewSession:
         self.message = ""
         self.held = False
         self._closed = asyncio.Event()
+        self._saw_closed = False
         self._session_started_at = self.clock()
         self._session_seconds = 0.0
         self._spawn(self._background, self._run_sideband(session_id, first_instruction))
         self._save_draft()
 
     async def _run_sideband(self, session_id: str, first_instruction: str) -> None:
+        self._saw_closed = False
         try:
             async with self.live.attach(session_id) as conn:
                 self._conn = conn
@@ -213,6 +217,8 @@ class InterviewSession:
             self._past_seconds += self._session_seconds
             self._session_seconds = 0.0
             self._closed.set()
+            if not self._ending and not self._saw_closed:
+                await self._safe(self.live.hangup(session_id))  # a sideband-only drop leaves the session running
             if not self._ending and self.state == "live":
                 self.state = "interrupted"
                 if not self.message:
@@ -236,6 +242,7 @@ class InterviewSession:
             self._session_seconds = float((event.get("usage") or {}).get("seconds", self._session_seconds))
             if not self._ending:
                 self.message = f"The voice session ended ({event.get('reason')}). Click Resume to continue."
+            self._saw_closed = True
             self._closed.set()
         elif etype == "error":
             log.warning("voice service error (%s)", (event.get("error") or {}).get("code"))
@@ -318,6 +325,8 @@ class InterviewSession:
             result = {
                 "transcript": str(self.result.transcript) if self.result.transcript else None,
                 "notes": str(self.result.notes) if self.result.notes else None,
+                "failed": self.result.failed,
+                "message": self.message,
             }
         return {
             "state": self.state,
@@ -370,7 +379,7 @@ class InterviewSession:
             self.result = await self.finalize()
         except Exception as exc:  # never leave end() hanging; the draft stays on disk
             log.warning("finalizing failed (%s)", type(exc).__name__)
-            self.result = InterviewResult(None, None)
+            self.result = InterviewResult(None, None, failed=True)
             self.message = "Saving failed; your draft is kept. Run: liber interview --recover"
         finally:
             self.state = "done"
@@ -406,11 +415,11 @@ class InterviewSession:
             notes_path = inbox / notes_name
             notes_path.write_text(notes, encoding="utf-8")
             self.message = "Done. Your transcript and notes are in the inbox."
-        except LLMError as exc:
+        except Exception as exc:  # the transcript is already safe in the inbox; keep it and discard the draft
             log.warning("notes failed (%s)", type(exc).__name__)
             self.message = f"Transcript saved; the notes failed. Retry with: liber interview --notes {transcript_path}"
         self._discard_workdir()
-        return InterviewResult(transcript_path, notes_path)
+        return InterviewResult(transcript_path, notes_path, voice_seconds=self.voice_seconds)
 
     # ---- persistence and helpers --------------------------------------------------------------
 

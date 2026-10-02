@@ -31,11 +31,12 @@ Deferred from the final whole-branch review of the access server.
 
 Deferred from the final whole-branch review and task-by-task sign-offs.
 
-- **Task 1:** `read_secret_values` doesn't filter non-string values or replace unparseable secrets; `load_voice_keys` doesn't check secrets mode when keys come from environment; `save_voice_setup` config write is not atomic and precedes secrets write
+- **Task 1:** `read_secret_values` drops non-string values and replaces an unparseable secrets file on rewrite; `load_voice_keys` doesn't check secrets mode when keys come from environment; `save_voice_setup` config write is not atomic and precedes secrets write
 - **Task 2:** no test for exact 2,500 ms turn boundary; multi-line typed notes get flattened; topic and notes not escaped in Markdown (e.g. `[[…]]` becomes a wikilink); `dialogue(limit=0)` returns all turns instead of respecting the limit; `Fragment(**f)` brittlely assumes keys
 - **Task 3:** JSON prompts lack "no code fences" documentation (parser tolerates them); topic string used raw as search query (no escaping)
 - **Task 5:** `sends(commentary/close)` raise `ConnectionClosed` if peer dropped — callers should catch them (only `session._safe` does currently); non-dict JSON in messages drops silently
-- **Task 6:** close-timeout hangup in `end()` not wrapped in `_safe` (hangup failure skips finalize); banker's rounding for elapsed minutes not exact; `_save_draft` blocks the event loop with sync I/O
+- **Task 6:** banker's rounding for elapsed minutes not exact; `_save_draft` blocks the event loop with sync I/O
 - **Task 7:** background tasks ignoring cancellation for >5 s may overlap new sideband; elapsed time includes interrupted periods (document expected behavior)
-- **Task 8:** auth token visible in `?t=` query string (uvicorn access log is off in runner); failed `setRemoteDescription` re-enables Start button; stale in-flight poll during resume could tear down fresh connection (narrow race); test server not in production host allowlist
+- **Task 8:** auth token visible in `?t=` query string (uvicorn access log is off in runner); failed `setRemoteDescription` re-enables Start button; stale in-flight poll during resume could tear down fresh connection (narrow race); `testserver` is in the production host allowlist (token still required)
 - **Task 9:** bare `suppress(BaseException)` on `serve()` await also swallows intended `CancelledError`; startup-failure path untested; `--notes` path accepted outside the vault; `topic`/`--continue` silently ignored when used with `--recover`/`--notes`
+- **Deferred (final review):** background-tab throttling may let the 60 s heartbeat lapse while interrupted; typed-note/seed char limits assume English-like text; the live smoke test checks model access and Claude only (a real WebRTC session needs a browser)

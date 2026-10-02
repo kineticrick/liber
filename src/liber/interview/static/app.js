@@ -12,7 +12,7 @@ const el = {
   noteForm: $("note-form"), noteText: $("note-text"), noteAdd: $("note-add"), result: $("result"),
 };
 
-let pc = null, dc = null, mic = null, finished = false, connecting = false;
+let pc = null, dc = null, mic = null, finished = false, connecting = false, started = false, lastState = "idle";
 let current = { who: null, node: null };
 
 function api(path, body, method = "POST") {
@@ -67,6 +67,9 @@ function onEvent({ data }) {
 
 async function connect(path) {
   pc = new RTCPeerConnection();
+  pc.addEventListener("connectionstatechange", () => {
+    if (pc && (pc.connectionState === "failed" || pc.connectionState === "closed")) stopAudio();
+  });
   pc.addEventListener("track", (e) => {
     el.remote.srcObject = new MediaStream([e.track]);
     el.remote.play().catch(() => { el.status.textContent = "Click anywhere on the page to allow audio playback."; });
@@ -90,6 +93,7 @@ async function connect(path) {
   if (!res.ok) throw new Error(await errorText(res));
   const { sdp } = await res.json();
   await pc.setRemoteDescription({ type: "answer", sdp });
+  started = true;
 }
 
 function explain(err) {
@@ -166,10 +170,13 @@ function showResult(result) {
   el.result.hidden = false;
   el.result.textContent = result.transcript
     ? `Saved to your inbox: ${result.transcript}${result.notes ? " and " + result.notes : " (notes failed — see the terminal)"}. Run /ingest when you're ready.`
-    : "Nothing was recorded, so no files were written.";
+    : result.failed
+      ? (result.message || "Saving failed; your draft is kept. Run: liber interview --recover")
+      : "Nothing was recorded, so no files were written.";
 }
 
 function render(status) {
+  lastState = status.state;
   el.topic.textContent = status.topic + (status.reason ? ` — ${status.reason}` : "");
   const m = Math.floor(status.elapsed_s / 60), s = status.elapsed_s % 60;
   el.timer.textContent = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")} / ${status.max_minutes}:00`;
@@ -188,11 +195,15 @@ function render(status) {
   if (status.state === "done" && !finished) { stopAudio(); setLive(false); showResult(status.result || {}); }
 }
 
+// Poll fast while the interview is winding down so the page sees "done" before the service exits.
 async function poll() {
   try {
     const res = await api("/api/status", null, "GET");
     if (res.ok) render(await res.json());
-  } catch { /* the service may be shutting down */ }
+  } catch {
+    // the service may be shutting down: don't leave the microphone captured
+    if (started) stopAudio();
+  }
+  if (!finished) setTimeout(poll, lastState === "finishing" || lastState === "connecting" ? 1000 : 5000);
 }
 poll();
-setInterval(poll, 5000);

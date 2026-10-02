@@ -162,13 +162,14 @@ async def _wait_for_line(lines, text):
 
 
 @pytest.mark.anyio
-async def test_serve_sigint_finalizes(configured):
+async def test_serve_sigint_finalizes(configured, monkeypatch):
     import os
     import signal
 
     app, session = _serve_parts(configured)
     lines = []
     before = {s: signal.getsignal(s) for s in (signal.SIGINT, signal.SIGTERM)}
+    monkeypatch.setattr(runner, "FINAL_STATUS_GRACE_S", 0.05)
     task = asyncio.create_task(runner._serve(app, session, open_browser=False, announce=lines.append))
     await _wait_for_line(lines, "Interview page:")
     os.kill(os.getpid(), signal.SIGINT)
@@ -180,7 +181,8 @@ async def test_serve_sigint_finalizes(configured):
 
 
 @pytest.mark.anyio
-async def test_serve_returns_when_session_ends(configured):
+async def test_serve_returns_when_session_ends(configured, monkeypatch):
+    monkeypatch.setattr(runner, "FINAL_STATUS_GRACE_S", 0.05)
     app, session = _serve_parts(configured)
     lines = []
     task = asyncio.create_task(runner._serve(app, session, open_browser=False, announce=lines.append))
@@ -188,3 +190,21 @@ async def test_serve_returns_when_session_ends(configured):
     await session.end("x")
     result = await asyncio.wait_for(task, 5)
     assert isinstance(result, runner.InterviewResult)
+
+
+def test_cli_reports_failed_save_with_recover_hint(configured, monkeypatch):
+    async def fake_run(**kwargs):
+        return runner.InterviewResult(None, None, failed=True)
+
+    monkeypatch.setattr(runner, "run_interview", fake_run)
+    r = CliRunner().invoke(app, ["interview", "my career", "--no-browser"])
+    assert "--recover" in r.output and "Nothing was recorded" not in r.output
+
+
+def test_cli_prints_voice_minutes(configured, monkeypatch):
+    async def fake_run(**kwargs):
+        return runner.InterviewResult(Path("/v/inbox/t.md"), Path("/v/inbox/t-notes.md"), voice_seconds=61)
+
+    monkeypatch.setattr(runner, "run_interview", fake_run)
+    r = CliRunner().invoke(app, ["interview", "my career", "--no-browser"])
+    assert "Voice time: 2 min" in r.output

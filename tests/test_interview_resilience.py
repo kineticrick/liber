@@ -379,3 +379,21 @@ async def test_save_draft_writes_owner_pid(vault, tmp_path):
     session._save_draft()
     assert (session.workdir / "owner.pid").read_text() == str(os.getpid())
     assert unfinished_workdirs() == [session.workdir]  # our own pid does not block recovery
+
+
+async def test_sideband_drop_hangs_up_the_old_session(vault, tmp_path):
+    session, live = make(vault, tmp_path, watch_interval_s=3600)
+    await session.start("OFFER")
+    await settle()
+    live.connections[0].drop()  # no session.closed event
+    await settle()
+    assert session.state == "interrupted" and live.hangups == ["live_1"]
+
+
+async def test_closed_event_does_not_hang_up_again(vault, tmp_path):
+    session, live = make(vault, tmp_path, watch_interval_s=3600)
+    await session.start("OFFER")
+    await settle()
+    live.connections[0].push({"type": "session.closed", "reason": "timeout"})
+    await settle()
+    assert live.hangups == []

@@ -46,6 +46,8 @@ Any non-browser audio path.
 | **Output:** a transcript plus session notes, both in `inbox/` | `/ingest` works mainly from the concise notes and uses the transcript for evidence. |
 | **Package:** `liber.interview`, installed with the optional extra `voice` | Keeps the base install light. |
 
+Exception to the `personal` ceiling: `--continue` and `--notes` deliberately send the previous interview's notes / the named transcript, which originate from an earlier interview already sent to both services.
+
 Constraints from the research (OpenAI docs, 2026-10-01). These are binding, and §4 is shaped by them:
 
 - `session.delegation.created` carries no request text. Our code rebuilds context from

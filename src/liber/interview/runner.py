@@ -42,7 +42,7 @@ def prepare_settings(minutes: int | None, model: str | None) -> InterviewSetting
     return settings
 
 
-FINAL_STATUS_GRACE_S = 1.0  # lets the page fetch its final status before the server stops
+FINAL_STATUS_GRACE_S = 6.0  # lets the page fetch its final status before the server stops
 
 
 async def _serve(app, session: InterviewSession, open_browser: bool, announce: Callable[[str], None]) -> InterviewResult:

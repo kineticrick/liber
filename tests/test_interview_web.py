@@ -68,12 +68,13 @@ def test_session_flow(vault, tmp_path):
         assert c.get("/api/status", headers=H).json()["state"] == "done"
 
 
-def test_openai_failure_is_502_and_key_never_leaks(vault, tmp_path, monkeypatch):
+def test_openai_failure_is_502_and_key_never_leaks(vault, tmp_path, monkeypatch, caplog):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-secret-value")
     session, _ = make(vault, tmp_path, FakeLiveClient(fail=LiveError("OpenAI refused the voice session (403): no access")))
     with TestClient(create_app(session, TOKEN)) as c:
         r = c.post("/api/session", json={"sdp": "OFFER"}, headers=H)
         assert r.status_code == 502 and "403" in r.json()["error"]
+        assert any("403" in rec.getMessage() and rec.name == "liber.interview" for rec in caplog.records)
         for path in ("/", "/app.js"):
             assert "sk-secret-value" not in c.get(path).text
         assert "sk-secret-value" not in r.text
@@ -102,3 +103,12 @@ def test_untrusted_host_rejected(vault, tmp_path):
     with TestClient(create_app(session, TOKEN)) as c:
         assert c.get("/", headers={"Host": "evil.example"}).status_code == 400
         assert c.get("/", headers={"Host": "localhost:8000"}).status_code == 200
+
+
+def test_end_reports_failure_flag_and_message(vault, tmp_path):
+    session, _ = make(vault, tmp_path)
+    with TestClient(create_app(session, TOKEN)) as c:
+        body = c.post("/api/end", headers=H).json()
+        assert body["failed"] is False and "Nothing was recorded" in body["message"]
+        result = c.get("/api/status", headers=H).json()["result"]
+        assert result["failed"] is False and "message" in result

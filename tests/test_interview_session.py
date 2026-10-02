@@ -230,7 +230,7 @@ async def test_finalize_failure_does_not_hang(vault, tmp_path):
     session.finalize = boom
     first = await session.end("x")
     second = await asyncio.wait_for(session.end("y"), 1)
-    assert first == second == InterviewResult(None, None)
+    assert first == second == InterviewResult(None, None, failed=True)
     assert session.state == "done" and "--recover" in session.message
     assert (tmp_path / "work" / "state.json").is_file()
 
@@ -246,3 +246,47 @@ async def test_malformed_event_is_ignored(vault, tmp_path):
     assert session.state == "live"
     assert any("Acme" in t.text for t in session.assembler.turns())
     await session.end("cleanup")
+
+
+async def _one_turn_session(vault, tmp_path, responder_fn=responder):
+    session, live = make(vault, tmp_path, responder_fn)
+    await session.start("OFFER")
+    await settle()
+    live.connections[0].push(me(" I started at Acme in 2018.", 2000, 3000))
+    await settle()
+    return session, live
+
+
+async def test_unexpected_notes_error_still_delivers_transcript(vault, tmp_path):
+    def boom(call):
+        if call["system"] == prompts.NOTES_SYSTEM:
+            raise RuntimeError("sdk exploded")
+        return responder(call)
+
+    session, _ = await _one_turn_session(vault, tmp_path, boom)
+    result = await session.end("ended by user")
+    assert result.transcript.is_file() and result.notes is None and not result.failed
+    assert not (tmp_path / "work").exists()
+    assert "liber interview --notes" in session.status()["message"]
+
+
+async def test_finalize_failure_is_flagged_and_reported(vault, tmp_path, monkeypatch):
+    session, _ = await _one_turn_session(vault, tmp_path)
+
+    async def broken():
+        raise OSError("disk full")
+
+    monkeypatch.setattr(session, "finalize", broken)
+    result = await session.end("ended by user")
+    assert result.failed and result.transcript is None
+    assert "--recover" in session.message
+    status = session.status()["result"]
+    assert status["failed"] is True and "--recover" in status["message"]
+
+
+async def test_finalize_reports_voice_seconds(vault, tmp_path):
+    session, live = await _one_turn_session(vault, tmp_path)
+    live.connections[0].push({"type": "session.usage.updated", "usage": {"seconds": 125}})
+    await settle()
+    result = await session.end("ended by user")
+    assert result.voice_seconds == 125

@@ -1,6 +1,7 @@
 """The local interview page and its API (127.0.0.1 only; every /api/* call needs the session token)."""
 
 import hmac
+import logging
 from pathlib import Path
 
 from starlette.applications import Starlette
@@ -14,6 +15,7 @@ from liber.errors import LiberError
 from liber.interview.live import LiveError
 from liber.interview.session import InterviewSession
 
+log = logging.getLogger("liber.interview")
 STATIC_DIR = Path(__file__).parent / "static"
 
 
@@ -26,6 +28,8 @@ def create_app(session: InterviewSession, token: str, *, static_dir: Path = STAT
         return JSONResponse({"error": "forbidden"}, status_code=403)
 
     def failure(exc: LiberError) -> JSONResponse:
+        if isinstance(exc, LiveError):
+            log.warning("%s", exc)  # LiveError text never contains a key
         return JSONResponse({"error": str(exc)}, status_code=502 if isinstance(exc, LiveError) else 409)
 
     async def body_text(request: Request, field: str) -> str:
@@ -95,6 +99,8 @@ def create_app(session: InterviewSession, token: str, *, static_dir: Path = STAT
         return JSONResponse({
             "transcript": str(result.transcript) if result.transcript else None,
             "notes": str(result.notes) if result.notes else None,
+            "failed": result.failed,
+            "message": session.message,
         })
 
     return Starlette(routes=[
