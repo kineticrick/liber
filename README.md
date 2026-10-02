@@ -109,36 +109,34 @@ Talk instead of typing. `liber interview` opens a page in your browser where a v
 **How it works**
 - **The voice** is OpenAI's GPT-Live-1, in full duplex: it listens while it talks and handles pauses and interruptions. Audio runs in your browser, which cancels echo, so speakers are fine.
 - **The brain** is Claude, running on your machine. It reads your vault, but only up to `personal`, so `private` files never reach either company. It quietly steers the interviewer's follow-ups, answers when the interviewer hands off, and writes the session notes at the end.
+- **What leaves your machine:** your voice and the conversation go to OpenAI (GPT-Live-1). Claude (Anthropic) receives the transcript and `personal`-level excerpts from your vault. `private` files and `sources/` are never sent to either. Transcripts and notes are saved only on your machine.
 - **Cost:** about $0.05 per minute of voice, plus Claude. A 45-minute interview costs roughly $2–4.
 
 **Set up once**
 ```bash
 cd ~/code/python/liber && uv tool install --editable '.[voice]'
 liber interview --setup     # your first name, OpenAI key (GPT-Live-1 access), Anthropic key
+                            # after liber init
 ```
 The keys are stored in `~/.config/liber/secrets.toml` (mode 600). `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` override them.
 
 **Interview**
 ```bash
 liber interview "my career"     # or just `liber interview` and it picks a gap and tells you why
-liber interview --continue      # pick up the last interview's topic, with its notes as context
+liber interview --continue      # pick up the last interview's topic; can't combine with a topic
 liber interview --minutes 20 --model claude-opus-5-5
 ```
-- **Start, Hold, Add a note, Resume, End.** Hold mutes you and tells the interviewer to wait. Add a note puts typed text into the transcript without interrupting. Resume appears if the connection drops.
+- **Start, Hold (mutes you; click again to resume talking), Add a note, Resume (reconnects after a dropped connection), End.** Add a note puts typed text into the transcript without interrupting.
 - **Going back.** Say something like "going back to Acme…" at any time. The notes merge the correction into the original fact.
-- **When it ends.** You can click End, say you want to stop, or reach the time limit (45 minutes by default, with a warning 5 minutes before). If you close the tab, the interview is finished for you after a minute.
+- **When it ends.** You can click End, say you want to stop, or reach the time limit (45 minutes by default, with a warning 5 minutes before). You can also press Ctrl-C in the terminal to finish gracefully (transcript and notes are still written). If you close the tab, the interview is finished for you after a minute.
 - **The files.** You get `inbox/interview-<date>-<topic>.md` (the transcript) and `…-notes.md` (new facts, corrections, people, preferences and follow-up questions, each cited with a `[mm:ss]` timestamp). Then run `/ingest`.
 
 **If something goes wrong:**
-- `liber interview --notes inbox/interview-….md` regenerates the notes.
-- `liber interview --recover` finishes an interview that was cut off, for example by a crash.
+- `liber interview --notes inbox/interview-….md` regenerates the notes (needs only the Anthropic key, but requires the voice extra installed and setup done).
+- `liber interview --recover` finishes an interview that was cut off, for example by a crash (needs only the Anthropic key, but requires the voice extra installed and setup done).
 
 Settings live in `~/.config/liber/config.toml` under `[interview]`: `name`, `model`, `notes_model`, `voice`, `max_minutes`, `warn_minutes`.
 
-**Additional details:**
-- `--recover` and `--notes` need only the Anthropic key.
-- Pressing Ctrl-C in the terminal finishes the interview gracefully (transcript and notes are still written); pressing it again just says it's still finishing.
-- If the voice connection drops, both Resume and End are available on the page.
 
 ## Connect your AI tools
 
@@ -242,4 +240,4 @@ uv sync
 uv run pytest
 ```
 
-The skills live in `src/liber/skills/`. After changing them, walk through `docs/manual-test/CHECKLIST.md`. After changing the server, walk through `docs/manual-test/SERVER-CHECKLIST.md`. After changing the interviewer, walk through docs/manual-test/INTERVIEW-CHECKLIST.md; uv run pytest -m live checks your real keys (a few cents). The designs and plans are in `docs/superpowers/`.
+The skills live in `src/liber/skills/`. After changing them, walk through `docs/manual-test/CHECKLIST.md`. After changing the server, walk through `docs/manual-test/SERVER-CHECKLIST.md`. After changing the interviewer, walk through `docs/manual-test/INTERVIEW-CHECKLIST.md`; `uv run pytest -m live` checks your real keys (a few cents). The designs and plans are in `docs/superpowers/`.
