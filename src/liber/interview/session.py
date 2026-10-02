@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
 import time
 from collections.abc import Callable, Coroutine
@@ -42,7 +43,7 @@ class InterviewSession:
         vault: Path,
         settings: InterviewSettings,
         brain: Brain,
-        live: LiveClient,
+        live: LiveClient | None,
         opening: Opening,
         workdir: Path | None = None,
         clock: Callable[[], float] = time.monotonic,
@@ -105,8 +106,46 @@ class InterviewSession:
         return answer
 
     def _start_watch(self) -> None:
-        """Task 7 replaces this with the heartbeat and time-limit watchdog."""
+        self._watch_task = self._spawn(self._background, self._watch())
 
+    async def _watch(self) -> None:
+        warn_at = (self.settings.max_minutes - self.settings.warn_minutes) * 60
+        stop_at = self.settings.max_minutes * 60
+        while self.state not in ("finishing", "done"):
+            await asyncio.sleep(self.watch_interval_s)
+            if self.state in ("finishing", "done"):
+                return
+            self._save_draft()
+            if self.clock() - self._last_heartbeat > self.heartbeat_timeout_s:
+                self._spawn(self._background, self.end("browser closed"))
+                return
+            elapsed = self.clock() - (self._started_at or self.clock())
+            if not self.warned and elapsed >= warn_at and self._conn is not None:
+                self.warned = True
+                await self._safe(self._conn.instructions(prompts.time_warning(self.settings.name, self.settings.warn_minutes)))
+            if elapsed >= stop_at:
+                if self._conn is not None:
+                    await self._safe(self._conn.instructions(prompts.time_up(self.settings.name)))
+                self._spawn(self._background, self.end("time limit"))
+                return
+
+    async def resume(self, sdp: str) -> str:
+        if self.state != "interrupted":
+            raise LiberError("there is nothing to resume")
+        seed_text = prompts.resume_seed_text(self.coverage, dialogue(self.assembler.turns(), 20))[:30_000]
+        seed = [{"type": "message", "role": "developer", "content": [{"type": "input_text", "text": seed_text}]}]
+        instructions = prompts.interviewer_instructions(self.settings.name, self.opening.topic)
+        session_id, answer = await self.live.create_session(
+            sdp=sdp, instructions=instructions, voice=self.settings.voice, seed=seed
+        )
+        me = asyncio.current_task()
+        for task in list(self._background):
+            if task is not me and task is not self._watch_task and not task.done():
+                task.cancel()
+        self.assembler.begin_resume()
+        self._last_heartbeat = self.clock()
+        self._begin(session_id, prompts.resume_instruction(self.settings.name))
+        return answer
     def _begin(self, session_id: str, first_instruction: str) -> None:
         self.session_ids.append(session_id)
         self.state = "live"
@@ -282,7 +321,7 @@ class InterviewSession:
                     await asyncio.wait_for(self._closed.wait(), self.close_wait_s)
                 except TimeoutError:
                     if self.session_ids:
-                        await self.live.hangup(self.session_ids[-1])
+                        await self._safe(self.live.hangup(self.session_ids[-1]))
             elif was_live:
                 # ended before the sideband attached: hang up so the session cannot keep running
                 if self.session_ids:
@@ -357,6 +396,19 @@ class InterviewSession:
             "assembler": self.assembler.to_state(),
         }
 
+    @classmethod
+    def from_state(cls, data: dict, *, vault: Path, settings: InterviewSettings, brain: Brain, workdir: Path) -> "InterviewSession":
+        """Rebuild an unfinished interview from its draft, so it can be finalized."""
+        started = datetime.fromisoformat(data["started_at"])
+        opening = Opening(data.get("topic", "interview"), data.get("reason", ""), data.get("question", ""))
+        session = cls(vault=vault, settings=settings, brain=brain, live=None, opening=opening,
+                      workdir=workdir, now=lambda: started)
+        session.id = data.get("id", session.id)
+        session.assembler = TranscriptAssembler.from_state(data.get("assembler", {}))
+        session.coverage = data.get("coverage", "")
+        session.session_ids = list(data.get("session_ids", []))
+        session._past_seconds = float(data.get("voice_seconds", 0.0))
+        return session
     def _save_draft(self) -> None:
         try:
             self.workdir.mkdir(parents=True, exist_ok=True)
@@ -385,3 +437,64 @@ class InterviewSession:
             await coro
         except Exception as exc:  # a failed send must never break the interview
             log.warning("voice service send failed (%s)", type(exc).__name__)
+
+
+_NOTES_TITLE = re.compile(r"^# Interview notes — (.+?) — \d{4}-\d{2}-\d{2}", re.MULTILINE)
+_TRANSCRIPT_TITLE = re.compile(r"^# Interview — (.+?) — (\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
+_DURATION = re.compile(r"^- Duration: (\d+) min", re.MULTILINE)
+
+
+def unfinished_workdirs() -> list[Path]:
+    root = interviews_dir()
+    if not root.is_dir():
+        return []
+    return sorted(p.parent for p in root.glob("*/state.json"))
+
+
+async def recover_interviews(
+    *, vault: Path, settings: InterviewSettings, brain_for_topic: Callable[[str], Brain]
+) -> list[InterviewResult]:
+    results = []
+    for workdir in unfinished_workdirs():
+        try:
+            data = json.loads((workdir / "state.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            log.warning("skipped an unreadable draft (%s)", type(exc).__name__)
+            continue
+        brain = brain_for_topic(data.get("topic", "interview"))
+        session = InterviewSession.from_state(data, vault=vault, settings=settings, brain=brain, workdir=workdir)
+        results.append(await session.finalize())
+    return results
+
+
+async def regenerate_notes(transcript: Path, brain: Brain) -> Path:
+    text = transcript.read_text(encoding="utf-8")
+    title = _TRANSCRIPT_TITLE.search(text)
+    if not text.startswith("<!-- liber interview transcript -->") or title is None:
+        raise LiberError(f"{transcript} is not an interview transcript")
+    duration = _DURATION.search(text)
+    minutes = int(duration.group(1)) if duration else 1
+    stem = transcript.name[: -len(".md")]
+    notes = await brain.write_notes(
+        transcript_md=text, topic=title.group(1), day=title.group(2), minutes=minutes, transcript_stem=stem
+    )
+    path = transcript.parent / free_name(transcript.parent, f"{stem}-notes.md")
+    path.write_text(notes, encoding="utf-8")
+    return path
+
+
+def find_last_notes(vault: Path) -> Path | None:
+    candidates = [
+        p
+        for folder in (vault / "inbox", vault / "sources" / "documents")
+        if folder.is_dir()
+        for p in folder.glob("interview-*-notes.md")
+    ]
+    return max(candidates, key=lambda p: (p.name, p.stat().st_mtime), default=None)
+
+
+def notes_topic(path: Path) -> str:
+    match = _NOTES_TITLE.search(path.read_text(encoding="utf-8"))
+    if match is None:
+        raise LiberError(f"{path} is not an interview notes file")
+    return match.group(1)
