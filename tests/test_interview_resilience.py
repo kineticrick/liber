@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime
 
 import pytest
@@ -314,3 +315,29 @@ def test_find_last_notes_uses_mtime_and_header(vault):
     fake.write_text("# not our header\n")
     os.utime(fake, (3000, 3000))
     assert find_last_notes(vault) == a
+
+
+class SlowTeardownClient(FakeLiveClient):
+    @asynccontextmanager
+    async def attach(self, session_id):
+        try:
+            async with super().attach(session_id) as conn:
+                yield conn
+        finally:
+            await asyncio.sleep(0.2)
+
+
+async def test_end_during_resume_teardown(vault, tmp_path):
+    session, live = make(vault, tmp_path, live=SlowTeardownClient(), watch_interval_s=3600)
+    await session.start("OFFER")
+    await settle()
+    session.state = "interrupted"  # the old sideband is still pending
+    resumer = asyncio.create_task(session.resume("OFFER2"))
+    await settle(0.05)
+    ender = asyncio.create_task(session.end("x"))
+    with pytest.raises(LiberError, match="ending"):
+        await resumer
+    await ender
+    assert "live_2" in live.hangups
+    assert session.state == "done"
+    assert not (session.workdir / "state.json").exists()

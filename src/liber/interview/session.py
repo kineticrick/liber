@@ -28,6 +28,7 @@ CLOSE_WAIT_S = 10.0
 HEARTBEAT_TIMEOUT_S = 60.0
 WATCH_INTERVAL_S = 5.0
 GOODBYE_GRACE_S = 3.0
+RESUME_TEARDOWN_S = 5.0
 NOTE_MAX_CHARS = 2_000
 
 
@@ -171,7 +172,8 @@ class InterviewSession:
         for task in cancelled:
             task.cancel()
         if cancelled:
-            await asyncio.gather(*cancelled, return_exceptions=True)
+            await asyncio.wait(cancelled, timeout=RESUME_TEARDOWN_S)
+            await self._abort_if_ending(session_id)
         self.assembler.begin_resume()
         self._last_heartbeat = self.clock()
         self._begin(session_id, prompts.resume_instruction(self.settings.name))
