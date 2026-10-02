@@ -18,13 +18,13 @@ Two other Jungian names were considered and set aside:
  ───────                     ───────                      ───
  inbox.md  (quick notes)  ┐
  inbox/    (documents)    ├─► /ingest in Claude Code ─► vault files ─► liber bundle → any chatbot
- voice transcripts (later)┘   (you approve each change)   (git history)   liber serve (MCP) → AI tools
+ voice interviews        ┘   (you approve each change)   (git history)   liber serve (MCP) → AI tools
 ```
 
 - **The vault** (for example `~/liber-vault`) is your content: Markdown files with small frontmatter headers, a private git repo, and an Obsidian vault synced to your phone.
 - **This repo** is the tool: the `liber` command and two Claude Code skills, `/ingest` and `/review`.
 
-Every AI tool can reach the vault through liber's MCP server: Claude Code and Claude Desktop locally, and claude.ai (web and phone), ChatGPT and other cloud tools through `https://<your domain>/mcp`. See [Connect your AI tools](#connect-your-ai-tools). Planned next: a voice interviewer (OpenAI GPT-Live-1 for the conversation, Claude as the interviewer's brain) that drops transcripts into `inbox/`.
+Every AI tool can reach the vault through liber's MCP server: Claude Code and Claude Desktop locally, and claude.ai (web and phone), ChatGPT and other cloud tools through `https://<your domain>/mcp`. See [Connect your AI tools](#connect-your-ai-tools). Voice interviews (below) let you fill the vault by talking.
 
 ## Install
 
@@ -101,6 +101,44 @@ sensitivity: personal # public | personal | private
 tags: []
 ---
 ```
+
+## Voice interviews
+
+Talk instead of typing. `liber interview` opens a page in your browser where a voice interviewer asks you questions, follows up, and lets you think. Afterwards a transcript and structured session notes land in `inbox/` for `/ingest`.
+
+**How it works**
+- **The voice** is OpenAI's GPT-Live-1, in full duplex: it listens while it talks and handles pauses and interruptions. Audio runs in your browser, which cancels echo, so speakers are fine.
+- **The brain** is Claude, running on your machine. It reads your vault, but only up to `personal`, so `private` files never reach either company. It quietly steers the interviewer's follow-ups, answers when the interviewer hands off, and writes the session notes at the end.
+- **Cost:** about $0.05 per minute of voice, plus Claude. A 45-minute interview costs roughly $2–4.
+
+**Set up once**
+```bash
+cd ~/code/python/liber && uv tool install --editable '.[voice]'
+liber interview --setup     # your first name, OpenAI key (GPT-Live-1 access), Anthropic key
+```
+The keys are stored in `~/.config/liber/secrets.toml` (mode 600). `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` override them.
+
+**Interview**
+```bash
+liber interview "my career"     # or just `liber interview` and it picks a gap and tells you why
+liber interview --continue      # pick up the last interview's topic, with its notes as context
+liber interview --minutes 20 --model claude-opus-5-5
+```
+- **Start, Hold, Add a note, Resume, End.** Hold mutes you and tells the interviewer to wait. Add a note puts typed text into the transcript without interrupting. Resume appears if the connection drops.
+- **Going back.** Say something like "going back to Acme…" at any time. The notes merge the correction into the original fact.
+- **When it ends.** You can click End, say you want to stop, or reach the time limit (45 minutes by default, with a warning 5 minutes before). If you close the tab, the interview is finished for you after a minute.
+- **The files.** You get `inbox/interview-<date>-<topic>.md` (the transcript) and `…-notes.md` (new facts, corrections, people, preferences and follow-up questions, each cited with a `[mm:ss]` timestamp). Then run `/ingest`.
+
+**If something goes wrong:**
+- `liber interview --notes inbox/interview-….md` regenerates the notes.
+- `liber interview --recover` finishes an interview that was cut off, for example by a crash.
+
+Settings live in `~/.config/liber/config.toml` under `[interview]`: `name`, `model`, `notes_model`, `voice`, `max_minutes`, `warn_minutes`.
+
+**Additional details:**
+- `--recover` and `--notes` need only the Anthropic key.
+- Pressing Ctrl-C in the terminal finishes the interview gracefully (transcript and notes are still written); pressing it again just says it's still finishing.
+- If the voice connection drops, both Resume and End are available on the page.
 
 ## Connect your AI tools
 
@@ -195,6 +233,7 @@ GitHub sign-ins last up to a year. They end when you run `liber logout-all`, rem
 | `liber server doctor` | Check the HTTP server end to end, as claude.ai and ChatGPT will see it |
 | `liber token create/list/revoke <name>` | Manage service tokens for tools that can't sign in |
 | `liber logout-all` | Sign out every connected cloud app |
+| `liber interview [TOPIC] [--continue] [--minutes N] [--model ID] [--no-browser]` | Voice interview; transcript and notes land in `inbox/` (`--setup`, `--notes <file>`, `--recover` for maintenance) |
 
 ## Development
 
@@ -203,4 +242,4 @@ uv sync
 uv run pytest
 ```
 
-The skills live in `src/liber/skills/`. After changing them, walk through `docs/manual-test/CHECKLIST.md`. After changing the server, walk through `docs/manual-test/SERVER-CHECKLIST.md`. The designs and plans are in `docs/superpowers/`.
+The skills live in `src/liber/skills/`. After changing them, walk through `docs/manual-test/CHECKLIST.md`. After changing the server, walk through `docs/manual-test/SERVER-CHECKLIST.md`. After changing the interviewer, walk through docs/manual-test/INTERVIEW-CHECKLIST.md; uv run pytest -m live checks your real keys (a few cents). The designs and plans are in `docs/superpowers/`.

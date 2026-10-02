@@ -26,3 +26,16 @@ Deferred from the final whole-branch review of the access server.
 - **auth:** callback takes the first `code` param (fails closed); a GitHub outage shows the "private" page and logs login None; no try/finally around the code delete; consent cookie not cleared on refusal; logout-all hides rmtree errors; OAuth dir mode follows umask; GitHub scope is `user` (consider `read:user` after live testing)
 - **setup:** unquoted paths in unit ExecStart / tunnel YAML; json.dumps surrogate escapes are invalid TOML for non-BMP characters; config append not atomic; `_tunnel_id` TypeError for non-object JSON
 - **doctor:** systemctl call has no timeout; local-server failure drops the exception detail; doctor's vault check uses the shell's LIBER_VAULT, which the systemd service may not have
+
+## Voice interviewer (sub-project 4)
+
+Deferred from the final whole-branch review and task-by-task sign-offs.
+
+- **Task 1:** `read_secret_values` doesn't filter non-string values or replace unparseable secrets; `load_voice_keys` doesn't check secrets mode when keys come from environment; `save_voice_setup` config write is not atomic and precedes secrets write
+- **Task 2:** no test for exact 2,500 ms turn boundary; multi-line typed notes get flattened; topic and notes not escaped in Markdown (e.g. `[[…]]` becomes a wikilink); `dialogue(limit=0)` returns all turns instead of respecting the limit; `Fragment(**f)` brittlely assumes keys
+- **Task 3:** JSON prompts lack "no code fences" documentation (parser tolerates them); topic string used raw as search query (no escaping)
+- **Task 5:** `sends(commentary/close)` raise `ConnectionClosed` if peer dropped — callers should catch them (only `session._safe` does currently); non-dict JSON in messages drops silently
+- **Task 6:** close-timeout hangup in `end()` not wrapped in `_safe` (hangup failure skips finalize); banker's rounding for elapsed minutes not exact; `_save_draft` blocks the event loop with sync I/O
+- **Task 7:** background tasks ignoring cancellation for >5 s may overlap new sideband; elapsed time includes interrupted periods (document expected behavior)
+- **Task 8:** auth token visible in `?t=` query string (uvicorn access log is off in runner); failed `setRemoteDescription` re-enables Start button; stale in-flight poll during resume could tear down fresh connection (narrow race); test server not in production host allowlist
+- **Task 9:** bare `suppress(BaseException)` on `serve()` await also swallows intended `CancelledError`; startup-failure path untested; `--notes` path accepted outside the vault; `topic`/`--continue` silently ignored when used with `--recover`/`--notes`
