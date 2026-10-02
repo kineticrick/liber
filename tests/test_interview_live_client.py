@@ -35,12 +35,40 @@ async def test_create_session_body_and_answer():
     }
 
 
-async def test_create_session_errors_are_live_errors():
+async def test_create_session_errors_are_live_errors_401():
     client = OpenAILiveClient("sk-test", http_client=http(
-        lambda r: httpx2.Response(403, json={"error": {"message": "no access to gpt-live-1"}})))
-    with pytest.raises(LiveError, match="403") as info:
+        lambda r: httpx2.Response(401, json={
+            "error": {
+                "message": "Incorrect API key provided: sk-proj-****abcd",
+                "type": "invalid_request_error",
+                "code": "invalid_api_key"
+            }
+        })))
+    with pytest.raises(LiveError) as info:
         await client.create_session(sdp="OFFER", instructions="I", voice="marin")
-    assert "sk-test" not in str(info.value)
+    exc_str = str(info.value)
+    assert "401" in exc_str
+    assert "invalid_api_key" in exc_str
+    assert "liber interview --setup" in exc_str
+    assert "sk-proj" not in exc_str
+    assert "****" not in exc_str
+
+
+async def test_create_session_errors_model_not_found_hint():
+    client = OpenAILiveClient("sk-test", http_client=http(
+        lambda r: httpx2.Response(403, json={
+            "error": {
+                "message": "Model not available",
+                "type": "invalid_request_error",
+                "code": "model_not_found"
+            }
+        })))
+    with pytest.raises(LiveError) as info:
+        await client.create_session(sdp="OFFER", instructions="I", voice="marin")
+    exc_str = str(info.value)
+    assert "403" in exc_str
+    assert "model_not_found" in exc_str
+    assert "GPT-Live-1 access" in exc_str
 
 
 async def test_sideband_recv_and_send_against_local_ws():
@@ -78,3 +106,15 @@ async def test_sideband_recv_and_send_against_local_ws():
 async def test_hangup_failure_is_swallowed():
     client = OpenAILiveClient("sk-test", http_client=http(lambda r: httpx2.Response(500, json={"error": {"message": "x"}})))
     await client.hangup("live_x")
+
+
+async def test_attach_handshake_failure_is_live_error():
+    async def reject(connection, request):
+        return connection.respond(401, "nope\n")
+
+    async with websockets.serve(lambda ws: ws, "127.0.0.1", 0, process_request=reject) as ws_server:
+        port = ws_server.sockets[0].getsockname()[1]
+        client = OpenAILiveClient("sk-test", websocket_base_url=f"ws://127.0.0.1:{port}/v1")
+        with pytest.raises(LiveError, match="could not attach"):
+            async with client.attach("live_x"):
+                pass

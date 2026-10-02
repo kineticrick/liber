@@ -111,15 +111,41 @@ class OpenAILiveClient:
         try:
             result = await self._client.live.create(session=session, transport={"type": "webrtc", "sdp": sdp})
         except openai.APIStatusError as exc:
-            raise LiveError(f"OpenAI refused the voice session ({exc.status_code}): {exc.message}") from exc
+            code = getattr(exc, "code", None)
+            hint = ""
+            if exc.status_code == 401:
+                hint = " — check your OpenAI API key (liber interview --setup)"
+            elif exc.status_code == 403 or code == "model_not_found":
+                hint = " — your OpenAI account may not have GPT-Live-1 access"
+            elif exc.status_code == 429:
+                hint = " — rate limit or quota reached"
+            msg = f"OpenAI refused the voice session ({exc.status_code}{', ' + code if code else ''}){hint}"
+            raise LiveError(msg) from exc
         except openai.APIError as exc:
             raise LiveError(f"could not reach OpenAI ({type(exc).__name__})") from exc
-        return result.session.id, result.transport.sdp
+        try:
+            session_id = result.session.id
+            answer_sdp = result.transport.sdp
+            if not session_id or not answer_sdp:
+                raise AttributeError("empty result")
+        except AttributeError as exc:
+            raise LiveError("OpenAI returned an unexpected response") from exc
+        return session_id, answer_sdp
 
     @asynccontextmanager
     async def attach(self, session_id: str) -> AsyncIterator[LiveConnection]:
-        async with self._client.live.sideband.connect(session_id=session_id) as conn:
+        import openai
+        from websockets.exceptions import WebSocketException
+
+        manager = self._client.live.sideband.connect(session_id=session_id)
+        try:
+            conn = await manager.__aenter__()
+        except (WebSocketException, OSError, openai.OpenAIError) as exc:
+            raise LiveError(f"could not attach to the voice session ({type(exc).__name__})") from exc
+        try:
             yield _OpenAIConnection(conn)
+        finally:
+            await manager.__aexit__(None, None, None)
 
     async def hangup(self, session_id: str) -> None:
         import openai
