@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import datetime
 
@@ -7,7 +8,7 @@ from liber.interview import prompts
 from liber.interview.brain import Brain, LLMError, Opening
 from liber.interview.brief import build_brief
 from liber.interview.live import LiveError
-from liber.interview.session import InterviewSession
+from liber.interview.session import InterviewResult, InterviewSession
 from liber.interview.settings import InterviewSettings
 from voice_fakes import FakeLiveClient, FakeLLM, settle, text_reply
 
@@ -98,8 +99,6 @@ async def test_short_utterances_do_not_trigger_steering(vault, tmp_path):
 
 async def test_stale_hint_is_dropped(vault, tmp_path):
     # Review Focus 4
-    import asyncio
-
     release = asyncio.Event()
     calls = []
 
@@ -207,3 +206,43 @@ async def test_status_shape(vault, tmp_path):
     session, _ = make(vault, tmp_path)
     status = session.status()
     assert status["state"] == "idle" and status["topic"] == "my career" and status["result"] is None
+
+
+async def test_end_before_attach_closes_cleanly(vault, tmp_path):
+    session, live = make(vault, tmp_path)
+    await session.start("OFFER")
+    await session.end("x")
+    await settle()
+    closed = any(c.kinds()[-1:] == ["close"] for c in live.connections)
+    assert closed or live.hangups == ["live_1"]
+    assert all(t.done() for t in session._background)
+    assert session.state == "done"
+
+
+async def test_finalize_failure_does_not_hang(vault, tmp_path):
+    session, live = make(vault, tmp_path)
+    await session.start("OFFER")
+    await settle()
+
+    async def boom():
+        raise OSError("disk")
+
+    session.finalize = boom
+    first = await session.end("x")
+    second = await asyncio.wait_for(session.end("y"), 1)
+    assert first == second == InterviewResult(None, None)
+    assert session.state == "done" and "--recover" in session.message
+    assert (tmp_path / "work" / "state.json").is_file()
+
+
+async def test_malformed_event_is_ignored(vault, tmp_path):
+    session, live = make(vault, tmp_path)
+    await session.start("OFFER")
+    await settle()
+    conn = live.connections[0]
+    conn.push({"type": "session.input_transcript.delta", "delta": " x", "start_ms": None, "end_ms": None})
+    conn.push(me(" I started at Acme.", 2000, 3000))
+    await settle()
+    assert session.state == "live"
+    assert any("Acme" in t.text for t in session.assembler.turns())
+    await session.end("cleanup")

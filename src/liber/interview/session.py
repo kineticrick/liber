@@ -122,12 +122,18 @@ class InterviewSession:
         try:
             async with self.live.attach(session_id) as conn:
                 self._conn = conn
+                if self._ending:
+                    await self._safe(conn.close())
+                    return
                 await conn.instructions(first_instruction)
                 while not self._closed.is_set():
                     event = await conn.recv()
                     if event is None:
                         break
-                    await self._handle(event)
+                    try:
+                        await self._handle(event)
+                    except Exception as exc:  # one bad event must not end the interview
+                        log.warning("ignored a malformed voice event (%s)", type(exc).__name__)
         except Exception as exc:  # any network or protocol failure ends this live session
             log.warning("voice connection ended (%s)", type(exc).__name__)
         finally:
@@ -165,6 +171,8 @@ class InterviewSession:
     # ---- Claude -------------------------------------------------------------------------------
 
     def _schedule_finished_check(self) -> None:
+        if self._ending:
+            return
         if self._debounce is not None:
             self._debounce.cancel()
         self._debounce = asyncio.create_task(self._after_pause())
@@ -198,6 +206,8 @@ class InterviewSession:
         return self.assembler.offset_ms + int((self.clock() - self._session_started_at) * 1000)
 
     async def add_note(self, text: str) -> None:
+        if self._ending:
+            raise LiberError("the interview is ending")
         text = text.strip()
         if not text:
             raise LiberError("the note is empty")
@@ -211,13 +221,18 @@ class InterviewSession:
     async def toggle_hold(self) -> bool:
         if self._conn is None:
             raise LiberError("not connected to the voice service")
-        self.held = not self.held
-        if self.held:
-            await self._conn.mute()
-            await self._conn.instructions(prompts.hold_on(self.settings.name))
-        else:
-            await self._conn.unmute()
-            await self._conn.instructions(prompts.hold_off(self.settings.name))
+        target = not self.held
+        try:
+            if target:
+                await self._conn.mute()
+                await self._conn.instructions(prompts.hold_on(self.settings.name))
+            else:
+                await self._conn.unmute()
+                await self._conn.instructions(prompts.hold_off(self.settings.name))
+        except Exception as exc:
+            log.warning("hold failed (%s)", type(exc).__name__)
+            raise LiberError("could not reach the voice service") from exc
+        self.held = target
         return self.held
 
     def heartbeat(self) -> dict:
@@ -255,24 +270,39 @@ class InterviewSession:
         if self._ending:
             await self.done.wait()
             return self.result
+        was_live = self.state == "live"
         self._ending = True
         self.state = "finishing"
         self.message = "Writing your transcript and notes…"
         log.info("ending interview (%s)", reason)
-        if self._conn is not None:
-            await self._safe(self._conn.close())
-            try:
-                await asyncio.wait_for(self._closed.wait(), self.close_wait_s)
-            except TimeoutError:
+        try:
+            if self._conn is not None:
+                await self._safe(self._conn.close())
+                try:
+                    await asyncio.wait_for(self._closed.wait(), self.close_wait_s)
+                except TimeoutError:
+                    if self.session_ids:
+                        await self.live.hangup(self.session_ids[-1])
+            elif was_live:
+                # ended before the sideband attached: hang up so the session cannot keep running
                 if self.session_ids:
-                    await self.live.hangup(self.session_ids[-1])
-        if self._debounce is not None:
-            self._debounce.cancel()
-        for task in list(self._llm_tasks):
-            task.cancel()
-        self.result = await self.finalize()
-        self.state = "done"
-        self.done.set()
+                    await self._safe(self.live.hangup(self.session_ids[-1]))
+                me = asyncio.current_task()
+                for task in list(self._background):
+                    if task is not me:
+                        task.cancel()
+            if self._debounce is not None:
+                self._debounce.cancel()
+            for task in list(self._llm_tasks):
+                task.cancel()
+            self.result = await self.finalize()
+        except Exception as exc:  # never leave end() hanging; the draft stays on disk
+            log.warning("finalizing failed (%s)", type(exc).__name__)
+            self.result = InterviewResult(None, None)
+            self.message = "Saving failed; your draft is kept. Run: liber interview --recover"
+        finally:
+            self.state = "done"
+            self.done.set()
         return self.result
 
     async def finalize(self) -> InterviewResult:
@@ -281,6 +311,7 @@ class InterviewSession:
             self._discard_workdir()
             self.message = "Nothing was recorded, so no files were written."
             return InterviewResult(None, None)
+        self._save_draft()
         day = self.started_wall.date()
         minutes = max(1, round(self.voice_seconds / 60)) if self.voice_seconds else max(1, round(self.assembler.end_ms / 60_000))
         inbox = self.vault / "inbox"
