@@ -143,9 +143,27 @@ def load_secrets() -> Secrets:
     return Secrets(**{key: data[key] for key in SECRET_KEYS})
 
 
-def write_secrets(secrets: Secrets) -> Path:
-    """Write secrets.toml with mode 0600 (JSON string escaping is valid TOML)."""
+def read_secret_values() -> dict[str, str]:
+    """Every string value in secrets.toml, unvalidated. Empty if the file is absent or unreadable."""
     path = secrets_path()
-    body = "".join(f"{key} = {json.dumps(getattr(secrets, key))}\n" for key in SECRET_KEYS)
-    write_private_file(path, body)
+    if not path.is_file():
+        return {}
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return {}
+    return {key: value for key, value in data.items() if isinstance(value, str)}
+
+
+def write_secret_values(values: dict[str, str]) -> Path:
+    """Replace secrets.toml with `values` (atomic, mode 0600). JSON string escaping is valid TOML."""
+    path = secrets_path()
+    write_private_file(path, "".join(f"{key} = {json.dumps(value)}\n" for key, value in values.items()))
     return path
+
+
+def write_secrets(secrets: Secrets) -> Path:
+    """Write the server secrets, keeping any other keys already in the file (e.g. voice API keys)."""
+    values = read_secret_values()
+    values.update({key: getattr(secrets, key) for key in SECRET_KEYS})
+    return write_secret_values(values)

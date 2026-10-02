@@ -114,3 +114,15 @@ def test_generated_keys_are_distinct_and_valid():
     assert new_jwt_signing_key() != new_jwt_signing_key()
     assert len(new_jwt_signing_key()) >= 43
     Fernet(new_storage_key())
+
+
+def test_write_secrets_preserves_foreign_keys():
+    from liber.server.settings import read_secret_values, write_secret_values
+
+    write_secret_values({"openai_api_key": "sk-o", "anthropic_api_key": "sk-a"})
+    write_secrets(Secrets("cid", "csecret", new_jwt_signing_key(), new_storage_key()))
+    values = read_secret_values()
+    assert values["openai_api_key"] == "sk-o" and values["anthropic_api_key"] == "sk-a"
+    assert values["github_client_id"] == "cid"
+    assert load_secrets().github_client_id == "cid"
+    assert stat.S_IMODE(secrets_path().stat().st_mode) == 0o600

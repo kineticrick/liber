@@ -3,8 +3,10 @@ from datetime import date
 
 
 @pytest.fixture(autouse=True)
-def isolated_env(monkeypatch, tmp_path_factory):
+def isolated_env(monkeypatch, tmp_path_factory, request):
     """Keep every test away from the real home dir, user config, and git config."""
+    if request.node.get_closest_marker("live"):
+        return None  # live smoke tests deliberately use the owner's real config and keys
     home = tmp_path_factory.mktemp("home")
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
@@ -17,6 +19,8 @@ def isolated_env(monkeypatch, tmp_path_factory):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("XDG_DATA_HOME", str(home / ".local" / "share"))
     monkeypatch.setenv("FASTMCP_CHECK_FOR_UPDATES", "off")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     return home
 
 
