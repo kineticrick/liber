@@ -4,6 +4,8 @@ import hmac
 from pathlib import Path
 
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse
 from starlette.routing import Route
@@ -17,7 +19,8 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 def create_app(session: InterviewSession, token: str, *, static_dir: Path = STATIC_DIR) -> Starlette:
     def authorized(request: Request) -> bool:
-        return hmac.compare_digest(request.headers.get("X-Liber-Token", ""), token)
+        supplied = request.headers.get("X-Liber-Token", "").encode("utf-8", "surrogateescape")
+        return hmac.compare_digest(supplied, token.encode("utf-8"))
 
     def forbidden() -> JSONResponse:
         return JSONResponse({"error": "forbidden"}, status_code=403)
@@ -85,7 +88,10 @@ def create_app(session: InterviewSession, token: str, *, static_dir: Path = STAT
     async def api_end(request: Request):
         if not authorized(request):
             return forbidden()
-        result = await session.end("ended by user")
+        try:
+            result = await session.end("ended by user")
+        except LiberError as exc:
+            return failure(exc)
         return JSONResponse({
             "transcript": str(result.transcript) if result.transcript else None,
             "notes": str(result.notes) if result.notes else None,
@@ -101,4 +107,4 @@ def create_app(session: InterviewSession, token: str, *, static_dir: Path = STAT
         Route("/api/hold", api_hold, methods=["POST"]),
         Route("/api/status", api_status, methods=["GET"]),
         Route("/api/end", api_end, methods=["POST"]),
-    ])
+    ], middleware=[Middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])])

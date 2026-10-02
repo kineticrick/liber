@@ -12,7 +12,7 @@ const el = {
   noteForm: $("note-form"), noteText: $("note-text"), noteAdd: $("note-add"), result: $("result"),
 };
 
-let pc = null, dc = null, mic = null, finished = false;
+let pc = null, dc = null, mic = null, finished = false, connecting = false;
 let current = { who: null, node: null };
 
 function api(path, body, method = "POST") {
@@ -99,6 +99,7 @@ function explain(err) {
 }
 
 async function begin(path, button) {
+  connecting = true;
   button.disabled = true;
   el.status.textContent = "Requesting the microphone…";
   try {
@@ -107,37 +108,55 @@ async function begin(path, button) {
     stopAudio();
     button.disabled = false;
     el.status.textContent = explain(err);
+  } finally {
+    connecting = false;
   }
 }
 
 el.start.addEventListener("click", () => begin("/api/session", el.start));
 el.resume.addEventListener("click", () => begin("/api/resume", el.resume));
 
-el.hold.addEventListener("click", async () => {
-  const res = await api("/api/hold");
-  if (!res.ok) { el.status.textContent = await errorText(res); return; }
-  const { held } = await res.json();
+function showHeld(held) {
   el.hold.textContent = held ? "Resume talking" : "Hold — I'm thinking";
   el.hold.classList.toggle("held", held);
+}
+
+el.hold.addEventListener("click", async () => {
+  try {
+    const res = await api("/api/hold");
+    if (!res.ok) { el.status.textContent = await errorText(res); return; }
+    showHeld((await res.json()).held);
+  } catch (err) {
+    el.status.textContent = explain(err);
+  }
 });
 
 el.end.addEventListener("click", async () => {
   setLive(false);
   el.status.textContent = "Writing your transcript and notes…";
-  const res = await api("/api/end");
-  stopAudio();
-  if (res.ok) showResult(await res.json());
-  else el.status.textContent = await errorText(res);
+  try {
+    const res = await api("/api/end");
+    stopAudio();
+    if (res.ok) showResult(await res.json());
+    else { el.status.textContent = await errorText(res); el.end.disabled = false; }
+  } catch (err) {
+    el.status.textContent = explain(err);
+    el.end.disabled = false;
+  }
 });
 
 el.noteForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const text = el.noteText.value.trim();
   if (!text) return;
-  const res = await api("/api/note", { text });
-  if (!res.ok) { el.status.textContent = await errorText(res); return; }
-  caption("note", text);
-  el.noteText.value = "";
+  try {
+    const res = await api("/api/note", { text });
+    if (!res.ok) { el.status.textContent = await errorText(res); return; }
+    caption("note", text);
+    el.noteText.value = "";
+  } catch (err) {
+    el.status.textContent = explain(err);
+  }
 });
 
 function showResult(result) {
@@ -158,8 +177,14 @@ function render(status) {
   else if (status.state === "connecting") el.status.textContent = "Connecting…";
   // "connecting" is a normal in-progress state: Resume stays hidden. A second Start/Resume click while
   // connecting gets a 409 from the server, whose error text begin() shows.
-  el.resume.hidden = status.state !== "interrupted";
-  if (status.state === "interrupted") { stopAudio(); setLive(false); el.resume.disabled = false; }
+  el.resume.hidden = connecting || status.state !== "interrupted";
+  if (status.state === "interrupted" && !connecting) {
+    stopAudio();
+    setLive(false);
+    el.end.disabled = false; // the user can still finish (and save) after a drop
+    el.resume.disabled = false;
+  }
+  if (status.state === "live" && !connecting) { setLive(true); showHeld(!!status.held); }
   if (status.state === "done" && !finished) { stopAudio(); setLive(false); showResult(status.result || {}); }
 }
 

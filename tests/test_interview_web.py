@@ -88,3 +88,17 @@ def test_page_has_controls(vault, tmp_path):
         js = c.get("/app.js").text
         for needle in ("echoCancellation: true", '"oai-events"', "/api/status", "X-Liber-Token", "history.replaceState"):
             assert needle in js
+
+
+def test_non_ascii_token_is_403_not_500(vault, tmp_path):
+    session, _ = make(vault, tmp_path)
+    with TestClient(create_app(session, TOKEN)) as c:
+        r = c.get("/api/status", headers={"X-Liber-Token": "tök".encode("latin-1")})
+        assert r.status_code == 403
+
+
+def test_untrusted_host_rejected(vault, tmp_path):
+    session, _ = make(vault, tmp_path)
+    with TestClient(create_app(session, TOKEN)) as c:
+        assert c.get("/", headers={"Host": "evil.example"}).status_code == 400
+        assert c.get("/", headers={"Host": "localhost:8000"}).status_code == 200
