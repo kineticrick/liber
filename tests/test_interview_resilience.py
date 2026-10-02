@@ -1,4 +1,6 @@
+import asyncio
 import json
+import os
 from datetime import datetime
 
 import pytest
@@ -100,7 +102,7 @@ async def test_heartbeat_timeout_finalizes(vault, tmp_path):
 
 async def test_time_warning_then_limit(vault, tmp_path):
     clock = Clock()
-    session, live = make(vault, tmp_path, clock=clock, watch_interval_s=0.01)
+    session, live = make(vault, tmp_path, clock=clock, watch_interval_s=0.01, goodbye_grace_s=0)
     await session.start("OFFER")
     await settle()
     conn = live.connections[0]
@@ -199,5 +201,116 @@ async def test_resume_cancels_lingering_sideband(vault, tmp_path):
     await session.resume("OFFER2")
     await settle()
     assert old[0].done()
+    assert session.state == "live"
+    new_conn = live.connections[1]
+    await session.end("ended")
+    assert ("close",) in new_conn.sent
+
+
+
+class GatedClient(FakeLiveClient):
+    def __init__(self):
+        super().__init__()
+        self.gate = asyncio.Event()
+
+    async def create_session(self, **kw):
+        await self.gate.wait()
+        return await super().create_session(**kw)
+
+
+async def test_end_during_start_connect_aborts(vault, tmp_path):
+    session, live = make(vault, tmp_path, live=GatedClient(), watch_interval_s=3600)
+    starter = asyncio.create_task(session.start("OFFER"))
+    await settle()
+    assert session.state == "connecting"
+    ender = asyncio.create_task(session.end("ended"))
+    await settle()
+    live.gate.set()
+    with pytest.raises(LiberError, match="ending"):
+        await starter
+    await ender
+    assert live.hangups == ["live_1"]
+    assert session.state == "done"
+    assert not (session.workdir / "state.json").exists()
+
+
+async def test_double_resume_creates_one_session(vault, tmp_path):
+    live = GatedClient()
+    live.gate.set()
+    session, live = make(vault, tmp_path, live=live, watch_interval_s=3600)
+    await session.start("OFFER")
+    await settle()
+    live.connections[0].push(me(" Part one has words.", 1000, 2000))
+    live.connections[0].drop()
+    await settle()
+    assert session.state == "interrupted"
+    live.gate.clear()
+    first = asyncio.create_task(session.resume("A"))
+    await settle()
+    with pytest.raises(LiberError, match="nothing to resume"):
+        await session.resume("B")
+    live.gate.set()
+    await first
+    assert len(live.created) == 2
+    await settle()
     await session.end("ended")
 
+
+async def test_failed_resume_restores_interrupted(vault, tmp_path):
+    session, live = make(vault, tmp_path, watch_interval_s=3600)
+    await session.start("OFFER")
+    await settle()
+    live.connections[0].drop()
+    await settle()
+    live.fail = RuntimeError("boom")
+    with pytest.raises(RuntimeError):
+        await session.resume("X")
+    assert session.state == "interrupted"
+    await session.end("ended")
+
+
+async def test_browser_closed_while_interrupted(vault, tmp_path):
+    clock = Clock()
+    session, live = make(vault, tmp_path, clock=clock, watch_interval_s=0.01, heartbeat_timeout_s=60)
+    await session.start("OFFER")
+    await settle()
+    live.connections[0].push(me(" I started at Acme in 2018.", 2000, 3000))
+    await settle()
+    live.connections[0].drop()
+    await settle()
+    assert session.state == "interrupted"
+    clock.t += 61
+    await settle(0.2)
+    assert session.state == "done" and session.result.transcript.is_file()
+
+
+async def test_recover_skips_corrupt_draft(vault, tmp_path):
+    session, live = make(vault, tmp_path, watch_interval_s=3600)
+    session.workdir = interviews_dir() / session.id
+    await session.start("OFFER")
+    await settle()
+    live.connections[0].push(me(" I started at Acme in 2018.", 2000, 3000))
+    await settle(0.1)
+    session._save_draft()
+    bad = interviews_dir() / "00000000-bad"
+    bad.mkdir(parents=True)
+    (bad / "state.json").write_text(json.dumps({"topic": "x"}))
+    results = await recover_interviews(
+        vault=vault, settings=SETTINGS,
+        brain_for_topic=lambda t: Brain(FakeLLM(responder), SETTINGS, vault, build_brief(vault, t)),
+    )
+    assert len(results) == 1 and results[0].transcript.is_file()
+
+
+def test_find_last_notes_uses_mtime_and_header(vault):
+    inbox = vault / "inbox"
+    a = inbox / "interview-2026-10-02-a-notes.md"
+    b = inbox / "interview-2026-10-02-b-notes-2.md"
+    for f in (a, b):
+        f.write_text("<!-- liber interview notes -->\n# Interview notes — t — 2026-10-02 (1 min)\n")
+    os.utime(a, (2000, 2000))
+    os.utime(b, (1000, 1000))
+    fake = inbox / "interview-2026-10-03-c-notes.md"
+    fake.write_text("# not our header\n")
+    os.utime(fake, (3000, 3000))
+    assert find_last_notes(vault) == a

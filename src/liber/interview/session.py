@@ -27,6 +27,7 @@ MIN_FINISHED_WORDS = 3
 CLOSE_WAIT_S = 10.0
 HEARTBEAT_TIMEOUT_S = 60.0
 WATCH_INTERVAL_S = 5.0
+GOODBYE_GRACE_S = 3.0
 NOTE_MAX_CHARS = 2_000
 
 
@@ -52,6 +53,7 @@ class InterviewSession:
         heartbeat_timeout_s: float = HEARTBEAT_TIMEOUT_S,
         watch_interval_s: float = WATCH_INTERVAL_S,
         close_wait_s: float = CLOSE_WAIT_S,
+        goodbye_grace_s: float = GOODBYE_GRACE_S,
     ) -> None:
         self.vault = vault
         self.settings = settings
@@ -64,6 +66,7 @@ class InterviewSession:
         self.heartbeat_timeout_s = heartbeat_timeout_s
         self.watch_interval_s = watch_interval_s
         self.close_wait_s = close_wait_s
+        self.goodbye_grace_s = goodbye_grace_s
         self.started_wall = now()
         self.id = f"{self.started_wall:%Y%m%d-%H%M%S}-{slugify(opening.topic)}"
         self.workdir = workdir or interviews_dir() / self.id
@@ -95,15 +98,28 @@ class InterviewSession:
     async def start(self, sdp: str) -> str:
         if self.state != "idle":
             raise LiberError("this interview has already started")
+        assert self.live is not None
         instructions = prompts.interviewer_instructions(self.settings.name, self.opening.topic)
-        session_id, answer = await self.live.create_session(
-            sdp=sdp, instructions=instructions, voice=self.settings.voice
-        )
+        self.state = "connecting"
+        try:
+            session_id, answer = await self.live.create_session(
+                sdp=sdp, instructions=instructions, voice=self.settings.voice
+            )
+        except BaseException:
+            if self.state == "connecting":
+                self.state = "idle"
+            raise
+        await self._abort_if_ending(session_id)
         self._started_at = self.clock()
         self._last_heartbeat = self.clock()
         self._begin(session_id, prompts.opening_instruction(self.settings.name, self.opening.question))
         self._start_watch()
         return answer
+
+    async def _abort_if_ending(self, session_id: str) -> None:
+        if self._ending:
+            await self._safe(self.live.hangup(session_id))
+            raise LiberError("the interview is ending")
 
     def _start_watch(self) -> None:
         self._watch_task = self._spawn(self._background, self._watch())
@@ -126,26 +142,41 @@ class InterviewSession:
             if elapsed >= stop_at:
                 if self._conn is not None:
                     await self._safe(self._conn.instructions(prompts.time_up(self.settings.name)))
+                    await asyncio.sleep(self.goodbye_grace_s)
                 self._spawn(self._background, self.end("time limit"))
                 return
 
     async def resume(self, sdp: str) -> str:
         if self.state != "interrupted":
             raise LiberError("there is nothing to resume")
-        seed_text = prompts.resume_seed_text(self.coverage, dialogue(self.assembler.turns(), 20))[:30_000]
+        assert self.live is not None
+        recent = dialogue(self.assembler.turns(), 20)[-25_000:]
+        seed_text = prompts.resume_seed_text(self.coverage, recent)
         seed = [{"type": "message", "role": "developer", "content": [{"type": "input_text", "text": seed_text}]}]
         instructions = prompts.interviewer_instructions(self.settings.name, self.opening.topic)
-        session_id, answer = await self.live.create_session(
-            sdp=sdp, instructions=instructions, voice=self.settings.voice, seed=seed
-        )
+        self.state = "connecting"
+        try:
+            session_id, answer = await self.live.create_session(
+                sdp=sdp, instructions=instructions, voice=self.settings.voice, seed=seed
+            )
+        except BaseException:
+            if self.state == "connecting":
+                self.state = "interrupted"
+            raise
+        await self._abort_if_ending(session_id)
         me = asyncio.current_task()
-        for task in list(self._background):
-            if task is not me and task is not self._watch_task and not task.done():
-                task.cancel()
+        cancelled = [
+            t for t in self._background if t is not me and t is not self._watch_task and not t.done()
+        ]
+        for task in cancelled:
+            task.cancel()
+        if cancelled:
+            await asyncio.gather(*cancelled, return_exceptions=True)
         self.assembler.begin_resume()
         self._last_heartbeat = self.clock()
         self._begin(session_id, prompts.resume_instruction(self.settings.name))
         return answer
+
     def _begin(self, session_id: str, first_instruction: str) -> None:
         self.session_ids.append(session_id)
         self.state = "live"
@@ -409,6 +440,7 @@ class InterviewSession:
         session.session_ids = list(data.get("session_ids", []))
         session._past_seconds = float(data.get("voice_seconds", 0.0))
         return session
+
     def _save_draft(self) -> None:
         try:
             self.workdir.mkdir(parents=True, exist_ok=True)
@@ -441,6 +473,7 @@ class InterviewSession:
 
 _NOTES_TITLE = re.compile(r"^# Interview notes — (.+?) — \d{4}-\d{2}-\d{2}", re.MULTILINE)
 _TRANSCRIPT_TITLE = re.compile(r"^# Interview — (.+?) — (\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
+_NOTES_HEADER = "<!-- liber interview notes -->"
 _DURATION = re.compile(r"^- Duration: (\d+) min", re.MULTILINE)
 
 
@@ -461,9 +494,12 @@ async def recover_interviews(
         except (OSError, ValueError) as exc:
             log.warning("skipped an unreadable draft (%s)", type(exc).__name__)
             continue
-        brain = brain_for_topic(data.get("topic", "interview"))
-        session = InterviewSession.from_state(data, vault=vault, settings=settings, brain=brain, workdir=workdir)
-        results.append(await session.finalize())
+        try:
+            brain = brain_for_topic(data.get("topic", "interview"))
+            session = InterviewSession.from_state(data, vault=vault, settings=settings, brain=brain, workdir=workdir)
+            results.append(await session.finalize())
+        except Exception as exc:  # one bad draft must not block the others
+            log.warning("could not recover an interview (%s)", type(exc).__name__)
     return results
 
 
@@ -488,9 +524,18 @@ def find_last_notes(vault: Path) -> Path | None:
         p
         for folder in (vault / "inbox", vault / "sources" / "documents")
         if folder.is_dir()
-        for p in folder.glob("interview-*-notes.md")
+        for p in folder.glob("interview-*-notes*.md")
+        if _is_notes_file(p)
     ]
-    return max(candidates, key=lambda p: (p.name, p.stat().st_mtime), default=None)
+    return max(candidates, key=lambda p: (p.stat().st_mtime, p.name), default=None)
+
+
+def _is_notes_file(path: Path) -> bool:
+    try:
+        with path.open(encoding="utf-8") as handle:
+            return handle.read(len(_NOTES_HEADER)) == _NOTES_HEADER
+    except (OSError, ValueError):
+        return False
 
 
 def notes_topic(path: Path) -> str:
