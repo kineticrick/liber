@@ -449,6 +449,9 @@ class InterviewSession:
             tmp = self.workdir / "state.json.tmp"
             tmp.write_text(json.dumps(self.state_dict()), encoding="utf-8")
             os.replace(tmp, self.workdir / "state.json")
+            owner = self.workdir / "owner.pid"
+            if not owner.exists() or owner.read_text(encoding="utf-8") != str(os.getpid()):
+                owner.write_text(str(os.getpid()), encoding="utf-8")  # a resumed draft changes owner
             draft = render_transcript(
                 topic=self.opening.topic, day=self.started_wall.date(), minutes=max(1, round(self.voice_seconds / 60)),
                 voice=self.settings.voice, model=self.settings.model, notes_stem="(pending)", turns=self.assembler.turns(),
@@ -483,7 +486,25 @@ def unfinished_workdirs() -> list[Path]:
     root = interviews_dir()
     if not root.is_dir():
         return []
-    return sorted(p.parent for p in root.glob("*/state.json"))
+    return sorted(p.parent for p in root.glob("*/state.json") if not _owned_by_other_live_process(p.parent))
+
+
+def _owned_by_other_live_process(workdir: Path) -> bool:
+    try:
+        pid = int((workdir / "owner.pid").read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return False
+    if pid <= 0 or pid == os.getpid():
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
 
 
 async def recover_interviews(

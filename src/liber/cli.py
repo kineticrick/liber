@@ -1,5 +1,6 @@
 """Thin command-line layer: parse args, call modules, print results."""
 
+import asyncio
 import logging
 import sys
 from contextlib import contextmanager
@@ -297,3 +298,57 @@ def server_doctor_cmd() -> None:
         typer.echo(str(check))
     if any(not c.ok and not c.warning for c in checks):
         raise typer.Exit(1)
+
+
+@app.command("interview")
+def interview_cmd(
+    topic: Annotated[Optional[str], typer.Argument(help="What to talk about; omit and liber picks a gap")] = None,
+    continue_last: Annotated[bool, typer.Option("--continue", help="Continue the most recent interview's topic")] = False,
+    minutes: Annotated[Optional[int], typer.Option("--minutes", help="Time limit for this interview")] = None,
+    model: Annotated[Optional[str], typer.Option("--model", help="Claude model for this interview")] = None,
+    no_browser: Annotated[bool, typer.Option("--no-browser", help="Print the page URL instead of opening it")] = False,
+    setup: Annotated[bool, typer.Option("--setup", help="Store your first name and API keys")] = False,
+    notes: Annotated[Optional[Path], typer.Option("--notes", help="Regenerate notes for this transcript")] = None,
+    recover: Annotated[bool, typer.Option("--recover", help="Finish interviews that were cut off")] = False,
+) -> None:
+    """Have a voice interview that fills your vault (transcript + notes land in inbox/)."""
+    _configure_server_logging()
+    with handle_errors():
+        from liber.interview import runner
+        from liber.interview.settings import load_voice_keys, save_voice_setup
+
+        if setup:
+            name = typer.prompt("Your first name (the interviewer will use it)")
+            openai_key = typer.prompt("OpenAI API key", hide_input=True)
+            anthropic_key = typer.prompt("Anthropic API key", hide_input=True)
+            save_voice_setup(name, openai_key, anthropic_key)
+            typer.echo("Saved. Start an interview with: liber interview")
+            return
+        if topic and continue_last:
+            raise LiberError("give either a topic or --continue, not both")
+        runner.require_voice_extra()
+        settings = runner.prepare_settings(minutes, model)
+        keys = load_voice_keys()
+        vault = resolve_vault()
+        if recover:
+            results = asyncio.run(runner.run_recover(settings=settings, keys=keys, vault=vault))
+            if not results:
+                typer.echo("No unfinished interviews.")
+            for result in results:
+                typer.echo(f"Recovered: {result.transcript} {result.notes or '(notes failed)'}")
+            return
+        if notes is not None:
+            path = asyncio.run(runner.run_notes(transcript=notes.expanduser(), settings=settings, keys=keys, vault=vault))
+            typer.echo(f"Notes written: {path}")
+            return
+        result = asyncio.run(runner.run_interview(
+            topic=topic, continue_last=continue_last, settings=settings, keys=keys, vault=vault,
+            open_browser=not no_browser, announce=typer.echo,
+        ))
+    if result.transcript is None:
+        typer.echo("Nothing was recorded, so no files were written.")
+        return
+    typer.echo(f"Transcript: {result.transcript}")
+    typer.echo(f"Notes: {result.notes}" if result.notes else
+               f"Notes failed; retry with: liber interview --notes {result.transcript}")
+    typer.echo("Next: open Claude Code in your vault and run /ingest.")

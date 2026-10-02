@@ -1,6 +1,8 @@
 import asyncio
 import json
 import os
+import subprocess
+import sys
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -341,3 +343,39 @@ async def test_end_during_resume_teardown(vault, tmp_path):
     assert "live_2" in live.hangups
     assert session.state == "done"
     assert not (session.workdir / "state.json").exists()
+
+
+def _workdir_with_pid(pid_text):
+    workdir = interviews_dir() / "abc"
+    workdir.mkdir(parents=True)
+    (workdir / "state.json").write_text("{}")
+    if pid_text is not None:
+        (workdir / "owner.pid").write_text(pid_text)
+    return workdir
+
+
+def test_unfinished_skips_workdir_owned_by_live_process(vault):
+    _workdir_with_pid(str(os.getppid()))
+    assert unfinished_workdirs() == []
+
+
+def test_unfinished_includes_workdir_owned_by_dead_process(vault):
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait()
+    workdir = _workdir_with_pid(str(proc.pid))
+    assert unfinished_workdirs() == [workdir]
+
+
+def test_unfinished_includes_garbled_or_missing_pid_file(vault):
+    workdir = _workdir_with_pid("not a pid")
+    assert unfinished_workdirs() == [workdir]
+    (workdir / "owner.pid").unlink()
+    assert unfinished_workdirs() == [workdir]
+
+
+async def test_save_draft_writes_owner_pid(vault, tmp_path):
+    session, _ = make(vault, tmp_path)
+    session.workdir = interviews_dir() / "mine"
+    session._save_draft()
+    assert (session.workdir / "owner.pid").read_text() == str(os.getpid())
+    assert unfinished_workdirs() == [session.workdir]  # our own pid does not block recovery
