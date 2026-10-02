@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>liber interview</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header>
+    <h1>liber interview</h1>
+    <p class="meta"><span id="topic">…</span> · <span id="timer">00:00</span></p>
+  </header>
+  <p class="controls">
+    <button id="start">Start</button>
+    <button id="hold" disabled>Hold — I'm thinking</button>
+    <button id="resume" hidden>Resume</button>
+    <button id="end" disabled>End</button>
+  </p>
+  <p id="status">Click Start and allow the microphone. Speakers are fine; the browser cancels echo.</p>
+  <div id="captions" aria-live="polite"></div>
+  <form id="note-form">
+    <input id="note-text" type="text" maxlength="2000" placeholder="Add a note without interrupting…" disabled />
+    <button type="submit" id="note-add" disabled>Add note</button>
+  </form>
+  <p id="result" hidden></p>
+  <audio id="remote" autoplay></audio>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

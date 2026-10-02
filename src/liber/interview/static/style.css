@@ -1,0 +1,14 @@
+:root { color-scheme: light dark; }
+body { font: 16px/1.5 system-ui, sans-serif; max-width: 48rem; margin: 2rem auto; padding: 0 1rem; }
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+.meta { color: #777; }
+button { font-size: 1rem; padding: .5rem 1rem; margin-right: .5rem; }
+button.held { background: #ffe9a8; color: #000; }
+#status { color: #777; min-height: 1.5em; }
+#captions { border: 1px solid #8884; border-radius: 6px; padding: .75rem; height: 55vh; overflow-y: auto; }
+#captions p { margin: .4rem 0; }
+.me { color: #2a6fb0; } .ai { color: #b06a2a; } .note { font-style: italic; color: #6a8a2a; }
+.who { font-weight: 600; margin-right: .4rem; }
+#note-form { display: flex; gap: .5rem; margin-top: .75rem; }
+#note-text { flex: 1; font-size: 1rem; padding: .5rem; }
+#result { padding: .75rem; border-radius: 6px; background: #8882; }
