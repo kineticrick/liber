@@ -188,6 +188,10 @@ class Brain:
             log.warning("opening plan failed (%s); using a default", type(exc).__name__)
             chosen = topic or "my life story"
             return Opening(chosen, "", _default_question(chosen))
+        except Exception as exc:
+            log.warning("opening plan failed (unexpected %s); using a default", type(exc).__name__)
+            chosen = topic or "my life story"
+            return Opening(chosen, "", _default_question(chosen))
         chosen = topic or str(data.get("topic", "")).strip() or "my life story"
         question = str(data.get("question", "")).strip() or _default_question(chosen)
         reason = "" if topic else str(data.get("reason", "")).strip()
@@ -210,6 +214,9 @@ class Brain:
         except (LLMError, TimeoutError, ValueError) as exc:
             log.warning("steering skipped (%s)", type(exc).__name__)
             return None
+        except Exception as exc:
+            log.warning("steering skipped (unexpected %s)", type(exc).__name__)
+            return None
         hint = _clip_chars(str(data.get("hint", "")), HINT_MAX_CHARS)
         new_coverage = _clip_words(str(data.get("coverage", "")), COVERAGE_MAX_WORDS) or coverage
         return Hint(hint, new_coverage) if hint else None
@@ -220,10 +227,13 @@ class Brain:
         except (LLMError, TimeoutError) as exc:
             log.warning("delegation fell back (%s)", type(exc).__name__)
             return prompts.FALLBACK_LINE
+        except Exception as exc:
+            log.warning("delegation fell back (unexpected %s)", type(exc).__name__)
+            return prompts.FALLBACK_LINE
         return _clip_words(text, DELEGATION_MAX_WORDS) or prompts.FALLBACK_LINE
 
     async def _delegation_loop(self, dialogue_text: str, coverage: str) -> str:
-        view = VaultView(self.vault, INTERVIEW_CEILING)
+        view = await asyncio.to_thread(VaultView, self.vault, INTERVIEW_CEILING)
         messages: list[dict] = [{
             "role": "user",
             "content": (
@@ -244,10 +254,15 @@ class Brain:
             messages.append({"role": "assistant", "content": reply.blocks})
             results = []
             for use in uses:
-                tool_calls += 1
-                content, is_error = run_tool(view, use.get("name", ""), use.get("input") or {})
-                result = {"type": "tool_result", "tool_use_id": use["id"], "content": content}
-                if is_error:
+                result = {"type": "tool_result", "tool_use_id": use["id"]}
+                if tool_calls < MAX_TOOL_CALLS:
+                    content, is_error = await asyncio.to_thread(run_tool, view, use.get("name", ""), use.get("input") or {})
+                    result["content"] = content
+                    if is_error:
+                        result["is_error"] = True
+                    tool_calls += 1
+                else:
+                    result["content"] = "tool limit reached"
                     result["is_error"] = True
                 results.append(result)
             messages.append({"role": "user", "content": results})
