@@ -124,3 +124,67 @@ def test_cli_runs_interview(configured, monkeypatch):
     assert r.exit_code == 0, r.output
     assert seen["topic"] == "my career" and seen["open_browser"] is False and seen["settings"].max_minutes == 20
     assert "/v/inbox/t.md" in r.output and "/v/inbox/t-notes.md" in r.output
+
+
+def test_cli_recover_needs_only_anthropic_key(vault, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    write_user_config(vault)
+    with user_config_path().open("a", encoding="utf-8") as handle:
+        handle.write('\n[interview]\nname = "Rick"\n')
+    write_secret_values({"anthropic_api_key": "sk-a"})
+    r = CliRunner().invoke(app, ["interview", "--recover"])
+    assert r.exit_code == 0, r.output
+    assert "No unfinished interviews." in r.output
+
+
+def _serve_parts(vault):
+    from liber.interview.brain import Brain, Opening
+    from liber.interview.brief import build_brief
+    from liber.interview.session import InterviewSession
+    from liber.interview.web import create_app
+
+    settings = InterviewSettings("Rick")
+    opening = Opening("my career", "", "How did your career begin?")
+    brain = Brain(FakeLLM(responder), settings, vault, build_brief(vault, opening.topic))
+    session = InterviewSession(vault=vault, settings=settings, brain=brain, live=FakeLiveClient(), opening=opening)
+    app = create_app(session, "tok")
+    app.state.token = "tok"
+    return app, session
+
+
+async def _wait_for_line(lines, text):
+    for _ in range(100):
+        if any(text in line for line in lines):
+            return
+        await asyncio.sleep(0.02)
+    raise AssertionError(f"never announced {text!r}: {lines}")
+
+
+@pytest.mark.anyio
+async def test_serve_sigint_finalizes(configured):
+    import os
+    import signal
+
+    app, session = _serve_parts(configured)
+    lines = []
+    before = {s: signal.getsignal(s) for s in (signal.SIGINT, signal.SIGTERM)}
+    task = asyncio.create_task(runner._serve(app, session, open_browser=False, announce=lines.append))
+    await _wait_for_line(lines, "Interview page:")
+    os.kill(os.getpid(), signal.SIGINT)
+    result = await asyncio.wait_for(task, 5)
+    assert isinstance(result, runner.InterviewResult)
+    assert session.done.is_set()
+    assert any("Finishing the interview" in line for line in lines)
+    assert {s: signal.getsignal(s) for s in before} == before
+
+
+@pytest.mark.anyio
+async def test_serve_returns_when_session_ends(configured):
+    app, session = _serve_parts(configured)
+    lines = []
+    task = asyncio.create_task(runner._serve(app, session, open_browser=False, announce=lines.append))
+    await _wait_for_line(lines, "Interview page:")
+    await session.end("x")
+    result = await asyncio.wait_for(task, 5)
+    assert isinstance(result, runner.InterviewResult)

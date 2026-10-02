@@ -76,12 +76,16 @@ def load_interview_settings() -> InterviewSettings:
     )
 
 
-def load_voice_keys() -> VoiceKeys:
+def _check_secrets_mode() -> None:
     path = secrets_path()
     if path.is_file():
         mode = stat.S_IMODE(path.stat().st_mode)
         if mode & 0o077:
             raise LiberError(f"{path} can be read by other users (mode {mode:o}); fix it with: chmod 600 {path}")
+
+
+def load_voice_keys() -> VoiceKeys:
+    _check_secrets_mode()
     stored = read_secret_values()
     openai_key = os.environ.get("OPENAI_API_KEY") or stored.get("openai_api_key", "")
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY") or stored.get("anthropic_api_key", "")
@@ -89,6 +93,14 @@ def load_voice_keys() -> VoiceKeys:
     if missing:
         raise LiberError(f"missing {' and '.join(missing)} API key. {_SETUP_HINT}")
     return VoiceKeys(openai_key, anthropic_key)
+
+
+def load_anthropic_key() -> str:
+    _check_secrets_mode()
+    key = os.environ.get("ANTHROPIC_API_KEY") or read_secret_values().get("anthropic_api_key", "")
+    if not key:
+        raise LiberError(f"missing Anthropic API key. {_SETUP_HINT}")
+    return key
 
 
 def save_voice_setup(name: str, openai_key: str, anthropic_key: str) -> None:

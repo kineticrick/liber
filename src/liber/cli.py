@@ -315,7 +315,7 @@ def interview_cmd(
     _configure_server_logging()
     with handle_errors():
         from liber.interview import runner
-        from liber.interview.settings import load_voice_keys, save_voice_setup
+        from liber.interview.settings import load_anthropic_key, load_voice_keys, save_voice_setup
 
         if setup:
             name = typer.prompt("Your first name (the interviewer will use it)")
@@ -328,21 +328,21 @@ def interview_cmd(
             raise LiberError("give either a topic or --continue, not both")
         runner.require_voice_extra()
         settings = runner.prepare_settings(minutes, model)
-        keys = load_voice_keys()
         vault = resolve_vault()
         if recover:
-            results = asyncio.run(runner.run_recover(settings=settings, keys=keys, vault=vault))
+            results = asyncio.run(runner.run_recover(settings=settings, anthropic_key=load_anthropic_key(), vault=vault))
             if not results:
                 typer.echo("No unfinished interviews.")
             for result in results:
                 typer.echo(f"Recovered: {result.transcript} {result.notes or '(notes failed)'}")
             return
         if notes is not None:
-            path = asyncio.run(runner.run_notes(transcript=notes.expanduser(), settings=settings, keys=keys, vault=vault))
+            path = asyncio.run(runner.run_notes(
+                transcript=notes.expanduser(), settings=settings, anthropic_key=load_anthropic_key(), vault=vault))
             typer.echo(f"Notes written: {path}")
             return
         result = asyncio.run(runner.run_interview(
-            topic=topic, continue_last=continue_last, settings=settings, keys=keys, vault=vault,
+            topic=topic, continue_last=continue_last, settings=settings, keys=load_voice_keys(), vault=vault,
             open_browser=not no_browser, announce=typer.echo,
         ))
     if result.transcript is None:

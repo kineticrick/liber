@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import dataclasses
 import secrets
+import signal
 import socket
 import webbrowser
 from collections.abc import Callable
@@ -41,26 +42,71 @@ def prepare_settings(minutes: int | None, model: str | None) -> InterviewSetting
     return settings
 
 
+FINAL_STATUS_GRACE_S = 1.0  # lets the page fetch its final status before the server stops
+
+
 async def _serve(app, session: InterviewSession, open_browser: bool, announce: Callable[[str], None]) -> InterviewResult:
     import uvicorn
 
+    class _Server(uvicorn.Server):
+        def capture_signals(self):  # we own SIGINT/SIGTERM so Ctrl-C finalizes the interview
+            return contextlib.nullcontext()
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
-    url = f"http://127.0.0.1:{port}/?t={app.state.token}"
-    server = uvicorn.Server(uvicorn.Config(app, log_level="warning", access_log=False))
-    serving = asyncio.create_task(server.serve(sockets=[sock]))
-    announce(f"Interview page: {url}")
-    if open_browser:
-        webbrowser.open(url)
-    finished = asyncio.create_task(session.done.wait())
-    await asyncio.wait({serving, finished}, return_when=asyncio.FIRST_COMPLETED)
-    result = await session.end("stopped from the terminal") if not session.done.is_set() else session.result
-    await asyncio.sleep(1.0)  # let the page fetch its final status
-    server.should_exit = True
-    with contextlib.suppress(Exception):
-        await serving
-    finished.cancel()
+    server = None
+    helpers: list[asyncio.Task] = []
+    loop = asyncio.get_running_loop()
+    stop = asyncio.Event()
+    handled: list[signal.Signals] = []
+
+    def on_signal() -> None:
+        if stop.is_set():
+            announce("Still finishing; please wait.")
+        else:
+            announce("Finishing the interview — writing your transcript and notes…")
+            stop.set()
+
+    serving = None
+    startup_failed = False
+    try:
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            with contextlib.suppress(NotImplementedError, RuntimeError, ValueError):
+                loop.add_signal_handler(sig, on_signal)
+                handled.append(sig)
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+        url = f"http://127.0.0.1:{port}/?t={app.state.token}"
+        server = _Server(uvicorn.Config(app, log_level="warning", access_log=False))
+        serving = asyncio.create_task(server.serve(sockets=[sock]))
+        announce(f"Interview page: {url}")
+        if open_browser:
+            webbrowser.open(url)
+        finished = asyncio.create_task(session.done.wait())
+        stopping = asyncio.create_task(stop.wait())
+        helpers = [finished, stopping]
+        await asyncio.wait({serving, finished, stopping}, return_when=asyncio.FIRST_COMPLETED)
+        startup_failed = serving.done() and not session.done.is_set() and not stop.is_set()
+    finally:
+        try:
+            if session.done.is_set():
+                result = session.result
+                if server is not None and serving is not None and not serving.done():
+                    await asyncio.sleep(FINAL_STATUS_GRACE_S)
+            else:
+                result = await asyncio.shield(session.end("stopped from the terminal"))
+        finally:
+            if server is not None:
+                server.should_exit = True
+            if serving is not None:
+                with contextlib.suppress(BaseException):
+                    await serving
+            for task in helpers:
+                task.cancel()
+            for sig in handled:
+                loop.remove_signal_handler(sig)
+            sock.close()
+    if startup_failed:
+        raise LiberError("the local interview page could not start")
     return result
 
 
@@ -102,13 +148,13 @@ async def run_interview(
     return await _serve(app, session, open_browser, announce)
 
 
-async def run_recover(*, settings: InterviewSettings, keys: VoiceKeys, vault: Path, llm=None) -> list[InterviewResult]:
-    llm = llm or AnthropicLLM(keys.anthropic)
+async def run_recover(*, settings: InterviewSettings, anthropic_key: str, vault: Path, llm=None) -> list[InterviewResult]:
+    llm = llm or AnthropicLLM(anthropic_key)
     return await recover_interviews(
         vault=vault, settings=settings, brain_for_topic=lambda t: Brain(llm, settings, vault, build_brief(vault, t))
     )
 
 
-async def run_notes(*, transcript: Path, settings: InterviewSettings, keys: VoiceKeys, vault: Path, llm=None) -> Path:
-    llm = llm or AnthropicLLM(keys.anthropic)
+async def run_notes(*, transcript: Path, settings: InterviewSettings, anthropic_key: str, vault: Path, llm=None) -> Path:
+    llm = llm or AnthropicLLM(anthropic_key)
     return await regenerate_notes(transcript, Brain(llm, settings, vault, build_brief(vault, None)))
