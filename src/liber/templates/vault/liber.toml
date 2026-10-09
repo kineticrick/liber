@@ -19,4 +19,5 @@ people = { type = "person" }
 interests = { type = "interest" }
 goals = { type = "goal" }
 health = { type = "health" }
+finance = { type = "finance" }
 log = { type = "log" }

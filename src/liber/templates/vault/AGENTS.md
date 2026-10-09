@@ -22,6 +22,7 @@ _Not written yet._
 | `people/` | One file per person (friends, colleagues, mentors), named `Full Name.md` |
 | `interests/` | One file per passion or hobby |
 | `health/` | Health and fitness. Start with `overview.md`. Medical details are `private` |
+| `finance/` | Money and investing. Start with `overview.md`. Figures (holdings, balances, income) are `private` |
 | `goals/` | What I'm working toward, including financial and creative goals |
 | `log/` | Dated life events by year, newest first |
 | `sources/` | The original material facts came from: archived notes, documents, interview transcripts |

@@ -21,6 +21,7 @@ This is a **liber** vault: a knowledge base about its owner ("I" and "me" in eve
   ```
   Sensitivity is per file. Put more sensitive material in its own file. New files default to `personal`; confirm with the owner.
 - **Health** lives in `health/`. Medical details (medications, lab results, conditions) go in `private` files. Training and diet can be `personal`.
+- **Finance** lives in `finance/`. My money philosophy and investing approach can be `personal`; figures (holdings, balances, income, debt, taxes) go in `private` files. The passion side of investing can live in `interests/`, linked to `finance/`. **Never record account numbers, logins, or full statements**, even in private files. Summaries are enough.
 - **Open questions** that would reveal `private` information go in an `## Open questions` section of the relevant private file, not in `open-questions.md`, which cloud tools can read.
 - **First person**, in the owner's voice.
 - **Facts carry dates and sources**, for example `- Led the payments migration at Acme (2019–2021). (src: [[sources/documents/thesis.pdf]])`.

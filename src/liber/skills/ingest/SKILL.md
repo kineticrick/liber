@@ -83,5 +83,6 @@ Then stop and wait. The owner answers in plain language, for example "all but 2"
 - **Distill long documents instead of copying them.** The full text stays in `sources/`.
 - **Keep notes about other people factual and kind.**
 - **Actively suggest structure.** When an item has no good home, a file is sprawling, or a new field would help, propose the change.
+- **Never record account numbers, logins, passwords, or similar identifiers** in the vault, even in private files. Summarize financial documents instead.
 - **Never edit anything in `sources/`.**
 - **The owner's word wins.** Record their correction, not your first reading.

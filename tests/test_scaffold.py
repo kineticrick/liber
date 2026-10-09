@@ -20,7 +20,7 @@ def test_layout(vault):
     for rel in [
         "AGENTS.md", "CLAUDE.md", "README.md", "inbox.md", "open-questions.md", "liber.toml", ".gitignore",
         "core/identity.md", "core/personality.md", "core/values.md", "core/preferences.md",
-        "career/timeline.md", "career/skills.md", "goals/current.md", "health/overview.md", "log/2026.md",
+        "career/timeline.md", "career/skills.md", "goals/current.md", "health/overview.md", "finance/overview.md", "log/2026.md",
         "_templates/person.md", "inbox/.gitkeep", "people/.gitkeep", "interests/.gitkeep",
         "career/projects/.gitkeep", "sources/notes/.gitkeep", "sources/documents/.gitkeep",
         "sources/interviews/.gitkeep",
@@ -55,6 +55,7 @@ def test_config_loads(vault):
     assert cfg.folders["career/projects"] == "project"
     assert cfg.type_for("people") == "person"
     assert cfg.type_for("health") == "health"
+    assert cfg.type_for("finance") == "finance"
 
 
 def test_refuses_non_empty_target(tmp_path, fake_skills):
