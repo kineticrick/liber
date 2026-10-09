@@ -33,7 +33,7 @@ Present one numbered list, grouped as: **Structure**, **Content fixes**, **Stale
    - Update the `updated:` dates.
    - Turn superseded facts into *Previously* history.
    - For approved structural changes, update `liber.toml` `[folders]`, `CLAUDE.md`, and the map in `AGENTS.md` together.
-2. Add the approved questions to `open-questions.md` as `- [YYYY-MM-DD] <question> (from review)`.
+2. Add the approved questions to `open-questions.md` as `- [YYYY-MM-DD] <question> (from review)`. A question that would reveal `private` information goes in the `## Open questions` section of the relevant private file instead, because cloud tools can read `open-questions.md`.
 3. Run `liber check` and fix everything it reports.
 4. Commit: `git add -A && git commit -m "review: <short summary>"`.
 5. Recap what changed and what's still open.

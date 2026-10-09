@@ -34,7 +34,7 @@ Present one numbered list of proposed changes, grouped like this:
 - **⚠️ Contradictions.** Questions where the item disagrees with the vault, for example "career/timeline.md says grad school ended 2015, but this is dated 2014. Which is right?"
 - **New people.** A new `people/` file for each person.
 - **Log entries.** Dated events for `log/<YYYY>.md`, newest first, e.g. `- 2014-05 — Finished my master's thesis. (src: [[sources/documents/thesis-summary.md]])`.
-- **Open questions.** Gaps this item reveals (something mentioned but never explained), phrased as questions for `open-questions.md`.
+- **Open questions.** Gaps this item reveals (something mentioned but never explained), phrased as questions for `open-questions.md`. A question that would reveal `private` information goes in the `## Open questions` section of the relevant private file instead, because cloud tools can read `open-questions.md`.
 - **Structural suggestions,** kept separate from content: a new top-level folder when something has no good home, splitting a sprawling file, a new frontmatter field, a new template.
 
 Example:

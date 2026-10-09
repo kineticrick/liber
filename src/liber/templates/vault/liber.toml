@@ -18,4 +18,5 @@ career = { type = "career" }
 people = { type = "person" }
 interests = { type = "interest" }
 goals = { type = "goal" }
+health = { type = "health" }
 log = { type = "log" }

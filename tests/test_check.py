@@ -48,14 +48,14 @@ def test_tags_must_be_a_list(vault):
 
 
 def test_unknown_folder(vault):
-    write(vault / "health" / "sleep.md", note(type="health"))
-    assert kinds(vault) == [("health/sleep.md", "unknown-folder")]
+    write(vault / "finance" / "budget.md", note(type="finance"))
+    assert kinds(vault) == [("finance/budget.md", "unknown-folder")]
 
 
 def test_new_folder_accepted_after_liber_toml_update(vault):
     toml = vault / "liber.toml"
-    toml.write_text(toml.read_text() + 'health = { type = "health" }\n')
-    write(vault / "health" / "sleep.md", note(type="health"))
+    toml.write_text(toml.read_text() + 'finance = { type = "finance" }\n')
+    write(vault / "finance" / "budget.md", note(type="finance"))
     assert run_checks(vault) == []
 
 

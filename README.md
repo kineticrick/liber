@@ -85,7 +85,7 @@ To seed liber from notes you already have in another Obsidian vault, copy them i
 | `liber.toml` | The vault's structure (folders and their `type`), size limits, and sync settings |
 | `inbox.md`, `inbox/` | Quick notes and documents waiting for `/ingest` |
 | `open-questions.md` | Gaps to fill later |
-| `core/`, `career/`, `people/`, `interests/`, `goals/`, `log/` | Your knowledge base |
+| `core/`, `career/`, `people/`, `interests/`, `health/`, `goals/`, `log/` | Your knowledge base |
 | `sources/` | The originals everything came from: notes, documents, and (later) interviews |
 | `_templates/` | Obsidian templates, for example `person.md` |
 

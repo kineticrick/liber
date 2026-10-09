@@ -20,6 +20,8 @@ This is a **liber** vault: a knowledge base about its owner ("I" and "me" in eve
   ---
   ```
   Sensitivity is per file. Put more sensitive material in its own file. New files default to `personal`; confirm with the owner.
+- **Health** lives in `health/`. Medical details (medications, lab results, conditions) go in `private` files. Training and diet can be `personal`.
+- **Open questions** that would reveal `private` information go in an `## Open questions` section of the relevant private file, not in `open-questions.md`, which cloud tools can read.
 - **First person**, in the owner's voice.
 - **Facts carry dates and sources**, for example `- Led the payments migration at Acme (2019–2021). (src: [[sources/documents/thesis.pdf]])`.
 - **Never delete facts silently.** Superseded facts become history, for example `- *Previously* lived in Denver (until 2024).`

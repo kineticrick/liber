@@ -21,6 +21,7 @@ _Not written yet._
 | `career/` | `timeline.md` (roles and dates), `skills.md` (expertise and depth), `projects/` (one file per notable project) |
 | `people/` | One file per person (friends, colleagues, mentors), named `Full Name.md` |
 | `interests/` | One file per passion or hobby |
+| `health/` | Health and fitness. Start with `overview.md`. Medical details are `private` |
 | `goals/` | What I'm working toward, including financial and creative goals |
 | `log/` | Dated life events by year, newest first |
 | `sources/` | The original material facts came from: archived notes, documents, interview transcripts |
