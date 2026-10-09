@@ -6,11 +6,6 @@
 
 The name comes from Carl Jung's *Liber Novus* ("The New Book"), better known as *The Red Book*. Jung spent about sixteen years writing it: a private, ever-growing record of his inner life that was never meant as a public face. That is the spirit of this project, an honest, accumulating record of a whole person.
 
-Two other Jungian names were considered and set aside:
-
-- **persona** is Jung's term for the *mask* we show the world, the opposite of what liber holds. LLMs also tend to read "persona" as an instruction to role-play.
-- **anima** is, strictly, one part of the psyche (the contrasexual archetype), not the whole Self.
-
 ## How it fits together
 
 ```
