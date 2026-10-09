@@ -70,11 +70,12 @@ To seed liber from notes you already have in another Obsidian vault, copy them i
    - Claude proposes dated, sourced edits, flags contradictions, and suggests structural changes.
    - You approve or correct them in plain language. Each item becomes one git commit.
 3. **Use:**
-   - `liber bundle --topics career,goals,core --copy` puts a single document on your clipboard, ready to paste into any chatbot.
+   - `liber bundle --topics career,finance,goals,core --copy` puts a single document on your clipboard, ready to paste into any chatbot.
    - For example: "Given everything about me, what new revenue sources should I pursue?"
+   - Bundles stop at `personal` by default. Add `--max-sensitivity private` only when pasting into a chat you trust with your private files.
 4. **Review:** run `/review` every month or so.
    - It finds uncaptured parts of your life, stale facts, and structural improvements.
-   - It adds questions to `open-questions.md`.
+   - It adds questions to `open-questions.md`. Questions that would reveal private information go in the relevant private file instead (see [Health and finance](#health-and-finance)).
 
 ## Vault layout
 
@@ -90,6 +91,22 @@ To seed liber from notes you already have in another Obsidian vault, copy them i
 | `_templates/` | Obsidian templates, for example `person.md` |
 
 The structure is meant to grow. When Claude suggests a new folder and you approve it, the folder is added to `liber.toml`, and `liber check` accepts it from then on.
+
+### Health and finance
+
+These two areas hold the most sensitive material, so each one splits by sensitivity:
+
+| Folder | `personal` (cloud tools and the voice interviewer can read it) | `private` (local tools only) |
+|---|---|---|
+| `health/` | Training and diet, for example `fitness.md` and `nutrition.md` | Medications, lab results, conditions and open investigations. Start with `overview.md` |
+| `finance/` | How you think about money and investing, in `overview.md` | Figures: holdings, balances, income, debt and taxes, for example `portfolio.md` and `situation.md` |
+
+Two rules keep private details from leaking:
+
+- **Open questions.** `open-questions.md` is readable by cloud tools. So a question that would reveal something private, such as "what dose of X do you take?", goes in an `## Open questions` section of the relevant private file instead.
+- **No account identifiers.** Account numbers, logins and passwords are never written into vault notes, even private ones. `/ingest` summarizes financial documents instead. The original document is still archived as-is in `sources/`, which cloud tools never see but which is committed to the vault's git. Redact account numbers before dropping in a statement if you don't want them kept at all.
+
+The passion side of investing (why it energizes you, the books and people that shaped you) can live in `interests/`, linked to `finance/`. Financial goals stay in `goals/`.
 
 Every content file starts with:
 
