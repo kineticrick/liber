@@ -12,14 +12,15 @@ The name comes from Carl Jung's *Liber Novus* ("The New Book"), better known as 
  capture                     process                      use
  ───────                     ───────                      ───
  inbox.md  (quick notes)  ┐
- inbox/    (documents)    ├─► /ingest in Claude Code ─► vault files ─► liber bundle → any chatbot
- voice interviews        ┘   (you approve each change)   (git history)   liber serve (MCP) → AI tools
+ inbox/    (documents)    │
+ voice interviews         ├─► /ingest in Claude Code ─► vault files ─► liber bundle → any chatbot
+ AI sessions (proposals)  ┘   (you approve each change)   (git history)   liber serve (MCP) → AI tools
 ```
 
 - **The vault** (for example `~/liber-vault`) is your content: Markdown files with small frontmatter headers, a private git repo, and an Obsidian vault synced to your phone.
 - **This repo** is the tool: the `liber` command and two Claude Code skills, `/ingest` and `/review`.
 
-Every AI tool can reach the vault through liber's MCP server: Claude Code and Claude Desktop locally, and claude.ai (web and phone), ChatGPT and other cloud tools through `https://<your domain>/mcp`. See [Connect your AI tools](#connect-your-ai-tools). Voice interviews (below) let you fill the vault by talking.
+Every AI tool can reach the vault through liber's MCP server: Claude Code and Claude Desktop locally, and claude.ai (web and phone), ChatGPT and other cloud tools through `https://<your domain>/mcp`. See [Connect your AI tools](#connect-your-ai-tools). Voice interviews (below) let you fill the vault by talking, and [passive capture](#passive-capture-from-ai-sessions) lets your everyday Claude sessions notice things worth keeping.
 
 ## Install
 
@@ -32,6 +33,8 @@ uv tool install --editable .
 ```
 
 The `--editable` install matters. Your vault's skills are symlinks into this repo, so updating the repo updates the skills everywhere.
+
+Editable installs pick up code changes but not new dependencies. After pulling changes that add dependencies, re-run the install with `--force`, adding any extras you use (for example `uv tool install --editable '.[voice]' --force`). A `ModuleNotFoundError` from `liber` usually means this step is due.
 
 ## Create your vault
 
@@ -61,6 +64,7 @@ To seed liber from notes you already have in another Obsidian vault, copy them i
 1. **Capture:**
    - Add a line to `inbox.md` (from your phone or desktop), or run `liber note "..."`.
    - Drop documents into `inbox/`, or run `liber add file.pdf`.
+   - Let your AI sessions propose additions as you work (see [Passive capture](#passive-capture-from-ai-sessions)).
 2. **Ingest:** open Claude Code in your vault and run `/ingest`.
    - Claude proposes dated, sourced edits, flags contradictions, and suggests structural changes.
    - You approve or correct them in plain language. Each item becomes one git commit.
@@ -148,6 +152,42 @@ liber interview --minutes 20 --model claude-opus-5-5
 
 Settings live in `~/.config/liber/config.toml` under `[interview]`: `name`, `model`, `notes_model`, `voice`, `max_minutes`, `warn_minutes`.
 
+## Passive capture from AI sessions
+
+Much of what's worth knowing about you comes out while you're doing something else: rewriting a draft into your own voice, rejecting a phrase because it sounds wrong, explaining why you prefer one approach. Passive capture asks Claude Code to notice those moments in any project and offer to send them to liber.
+
+**How it works**
+- A standing instruction in your global `~/.claude/CLAUDE.md` (loaded by every Claude Code session) tells Claude what to watch for:
+  - **Writing voice and tone:** your edits to its drafts (the diff is the evidence), words you reject and why, stated style preferences
+  - **Opinions:** your views on technology, leadership, work, products and ideas
+  - **Preferences:** likes, dislikes, how you like to work
+  - **Values, priorities and goals** that come through in your decisions
+  - **Facts about your life and work** that come up naturally
+- At a natural pause, Claude summarizes what it noticed and **asks before sending anything**.
+- On approval it calls the MCP `propose_update` tool, which lands a `proposal-*.md` in `inbox/`. If the tool isn't available, it writes a Markdown file to `inbox/` instead.
+- Each capture includes what you were working on, concrete evidence (before → after examples, your own words and reasons), the limits of that evidence, and a suggestion for where it might belong.
+- Claude never writes into vault folders directly. `/ingest` decides placement, and you approve every change, as with any other capture.
+
+**Set up once**
+1. Register the local MCP server so every Claude Code session has `propose_update`:
+   ```bash
+   claude mcp add --scope user liber -- liber serve
+   claude mcp list    # liber should show ✔ Connected
+   ```
+2. Add a section like this to `~/.claude/CLAUDE.md`, with your own vault path:
+   ```markdown
+   # Personal context capture (liber)
+   - My personal knowledge base lives at `~/liber-vault`. It should become a full-fledged store of context about me.
+   - During any work, watch for evidence about me worth keeping: writing voice and tone (my edits to your drafts, words I reject and why), opinions, preferences, values and goals, and facts about my life and work.
+   - At a natural pause, if the evidence is meaningful and not a one-off, summarize it in a few lines and ask before sending.
+   - On approval, send it with the liber MCP `propose_update` tool; fallback: write `~/liber-vault/inbox/<topic>-<YYYY-MM-DD>.md`.
+   - Include what we were working on, concrete evidence, its limits, and what /ingest should do. Never write directly into vault content folders.
+   - Never send account numbers, credentials or other secrets. Flag sensitive material (health, finance, private matters about others) for /ingest.
+   - High bar: skip trivia and passing remarks. Capture patterns, rejections with reasons, and opinions or preferences I state clearly or repeat.
+   ```
+3. Restart running Claude Code sessions. They load `CLAUDE.md` and MCP servers only at startup.
+
+For claude.ai, add liber as a connector (see [Cloud apps](#cloud-apps-one-time-setup)) and put a short version of the instruction in your profile preferences.
 
 ## Connect your AI tools
 
