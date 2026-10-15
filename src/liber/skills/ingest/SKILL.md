@@ -74,7 +74,11 @@ Then stop and wait. The owner answers in plain language, for example "all but 2"
    - Show the full new text and get approval separately.
    - Keep it within the size limit; `liber check` enforces this.
    - Commit with `ingest: refresh AGENTS.md`.
-3. Give a short recap: items processed, files changed, questions added, anything skipped.
+3. **Push to the backup remote,** if the vault has one. This is the owner's standing request, so don't ask first.
+   - Run `git rev-parse --abbrev-ref --symbolic-full-name @{u}`. If there is no upstream, skip this step and say the vault has no remote.
+   - If `origin` is on GitHub and `gh` is available, run `gh repo view <owner>/<repo> --json visibility` first. **Push only if it says `PRIVATE`.** If it says anything else, or the check fails, don't push. Warn the owner, because the vault must never be public.
+   - Run `git push`. Never force-push. If the push is rejected or fails, report the error and leave it to the owner. The commits are safe locally.
+4. Give a short recap: items processed, files changed, questions added, anything skipped, and whether the push succeeded.
 
 ## Rules
 

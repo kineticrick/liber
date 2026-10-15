@@ -56,7 +56,7 @@ git runs on the desktop only. Obsidian Sync doesn't sync hidden folders like `.g
 
 ### Off-site backup (optional)
 
-Obsidian Sync isn't a backup of your git history. To keep one, push the vault to a **private** remote, for example `gh repo create <you>/liber-vault --private --source ~/liber-vault --remote origin --push`, and check the result with `gh repo view <you>/liber-vault --json visibility`. Never make it public. The repo holds everything, including `private` files and `sources/`, so whoever can read it can read everything. Commits from `/ingest` stay local until you run `git push` in the vault.
+Obsidian Sync isn't a backup of your git history. To keep one, push the vault to a **private** remote, for example `gh repo create <you>/liber-vault --private --source ~/liber-vault --remote origin --push`, and check the result with `gh repo view <you>/liber-vault --json visibility`. Never make it public. The repo holds everything, including `private` files and `sources/`, so whoever can read it can read everything. Once the vault has an upstream, `/ingest` pushes at the end of each run, but only after confirming the GitHub repo is private. It never force-pushes. Other commits, such as manual edits or `/review`, stay local until you run `git push`.
 
 To seed liber from notes you already have in another Obsidian vault, copy them into `inbox/` and run `/ingest`.
 
@@ -72,6 +72,7 @@ To seed liber from notes you already have in another Obsidian vault, copy them i
 2. **Ingest:** open Claude Code in your vault and run `/ingest`.
    - Claude proposes dated, sourced edits, flags contradictions, and suggests structural changes.
    - You approve or correct them in plain language. Each item becomes one git commit.
+   - If the vault has a private backup remote, the commits are pushed at the end.
 3. **Use:**
    - `liber bundle --topics career,finance,goals,core --copy` puts a single document on your clipboard, ready to paste into any chatbot.
    - For example: "Given everything about me, what new revenue sources should I pursue?"
