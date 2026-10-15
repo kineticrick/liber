@@ -54,6 +54,10 @@ This creates the folders and starter files, links the skills into `.claude/skill
 
 git runs on the desktop only. Obsidian Sync doesn't sync hidden folders like `.git/`, so there's nothing to exclude.
 
+### Off-site backup (optional)
+
+Obsidian Sync isn't a backup of your git history. To keep one, push the vault to a **private** remote, for example `gh repo create <you>/liber-vault --private --source ~/liber-vault --remote origin --push`, and check the result with `gh repo view <you>/liber-vault --json visibility`. Never make it public. The repo holds everything, including `private` files and `sources/`, so whoever can read it can read everything. Commits from `/ingest` stay local until you run `git push` in the vault.
+
 To seed liber from notes you already have in another Obsidian vault, copy them into `inbox/` and run `/ingest`.
 
 - **Storage:** original documents in `sources/documents/` count against your Sync storage. If that becomes a problem, add `sources/documents` to Sync's excluded folders. The originals stay safe in git on the desktop.
