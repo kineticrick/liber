@@ -2,14 +2,13 @@
 
 import json
 import os
-import stat
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
 from liber.config import user_config_path
 from liber.errors import LiberError
-from liber.server.settings import data_dir, read_secret_values, secrets_path, write_secret_values
+from liber.server.settings import check_secrets_mode, data_dir, read_secret_values, write_secret_values
 
 DEFAULT_MODEL = "claude-sonnet-5-5"
 DEFAULT_NOTES_MODEL = "claude-opus-5-5"
@@ -76,16 +75,8 @@ def load_interview_settings() -> InterviewSettings:
     )
 
 
-def _check_secrets_mode() -> None:
-    path = secrets_path()
-    if path.is_file():
-        mode = stat.S_IMODE(path.stat().st_mode)
-        if mode & 0o077:
-            raise LiberError(f"{path} can be read by other users (mode {mode:o}); fix it with: chmod 600 {path}")
-
-
 def load_voice_keys() -> VoiceKeys:
-    _check_secrets_mode()
+    check_secrets_mode()
     stored = read_secret_values()
     openai_key = os.environ.get("OPENAI_API_KEY") or stored.get("openai_api_key", "")
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY") or stored.get("anthropic_api_key", "")
@@ -96,7 +87,7 @@ def load_voice_keys() -> VoiceKeys:
 
 
 def load_anthropic_key() -> str:
-    _check_secrets_mode()
+    check_secrets_mode()
     key = os.environ.get("ANTHROPIC_API_KEY") or read_secret_values().get("anthropic_api_key", "")
     if not key:
         raise LiberError(f"missing Anthropic API key. {_SETUP_HINT}")

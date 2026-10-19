@@ -143,6 +143,15 @@ def load_secrets() -> Secrets:
     return Secrets(**{key: data[key] for key in SECRET_KEYS})
 
 
+def check_secrets_mode() -> None:
+    """Refuse to use secrets.toml if other users can read it."""
+    path = secrets_path()
+    if path.is_file():
+        mode = stat.S_IMODE(path.stat().st_mode)
+        if mode & 0o077:
+            raise LiberError(f"{path} can be read by other users (mode {mode:o}); fix it with: chmod 600 {path}")
+
+
 def read_secret_values() -> dict[str, str]:
     """Every string value in secrets.toml, unvalidated. Empty if the file is absent or unreadable."""
     path = secrets_path()
