@@ -81,3 +81,18 @@ def test_cli_extract(configured_vault):
     assert "page.html — extracted" in result.output
     again = runner.invoke(app, ["extract"])
     assert "Nothing to extract" in again.output
+
+
+def test_extract_amends_words(configured_vault):
+    vault = configured_vault
+    from liber import ledger
+
+    src = vault.parent / "a.pdf"
+    src.write_bytes(b"%PDF")
+    runner = CliRunner()
+    assert runner.invoke(app, ["add", str(src)]).exit_code == 0
+    (entry,) = ledger.load(vault).values()
+    assert entry.words is None
+    extract_pending(vault, lambda p: "a b c d e f g h i j k l m n o p q r s t u v w x y z")
+    (entry,) = ledger.load(vault).values()
+    assert entry.words == 26

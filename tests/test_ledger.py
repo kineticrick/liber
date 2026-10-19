@@ -117,3 +117,77 @@ def test_record_after_a_partial_last_line_is_not_lost(tmp_path):
     second = Entry(key="b", kind="note", date="2026-10-01", tool="t")
     assert ledger.record(tmp_path, second)
     assert set(ledger.load(tmp_path)) == {"a", "b"}
+
+
+def _inbox(vault):
+    d = vault / "inbox"
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def test_sweep_records_unrecorded_files_and_skips_sidecars(vault):
+    from datetime import date
+
+    inbox = _inbox(vault)
+    (inbox / "a.pdf").write_bytes(b"%PDF")
+    (inbox / "a.pdf.md").write_text("one two", encoding="utf-8")
+    (inbox / "b.md").write_text("hello there world", encoding="utf-8")
+    assert ledger.sweep(vault, date(2026, 10, 18), include_notes=False) == 2
+    entries = ledger.load(vault)
+    assert entries[ledger.file_key(inbox / "a.pdf")].words == 2
+    assert ledger.file_key(inbox / "a.pdf.md") not in entries
+
+
+def test_sweep_notes_only_when_asked(vault):
+    from datetime import date
+
+    (vault / "inbox.md").write_text("# Inbox\n\n- 2026-10-01 09:00 — phone note here\n", encoding="utf-8")
+    today = date(2026, 10, 18)
+    assert ledger.sweep(vault, today, include_notes=False) == 0
+    assert ledger.sweep(vault, today, include_notes=True) == 1
+    (entry,) = ledger.load(vault).values()
+    assert entry.date == "2026-10-01" and entry.kind == "note" and entry.words == 3
+
+
+def test_sweep_is_idempotent(vault):
+    from datetime import date
+
+    (_inbox(vault) / "b.md").write_text("hello", encoding="utf-8")
+    assert ledger.sweep(vault, date(2026, 10, 18), include_notes=True) == 1
+    assert ledger.sweep(vault, date(2026, 10, 18), include_notes=True) == 0
+
+
+def test_sweep_skips_files_owned_by_other_entries(vault):
+    from datetime import date
+
+    inbox = _inbox(vault)
+    (inbox / "t.md").write_text("talk", encoding="utf-8")
+    (inbox / "i.md").write_text("<!-- liber interview transcript -->\n**Me:** hi", encoding="utf-8")
+    (inbox / "interview-1-notes.md").write_text("notes", encoding="utf-8")
+    ledger.record(vault, _entry(key="url:x", kind="talk-audio", files=[ledger.file_key(inbox / "t.md")]))
+    ledger.record(vault, _entry(key="session:1", kind="voice-interview", files=[
+        ledger.file_key(inbox / "i.md"), ledger.file_key(inbox / "interview-1-notes.md")]))
+    assert ledger.sweep(vault, date(2026, 10, 18), include_notes=False) == 0
+
+
+def test_kind_for_markers():
+    from pathlib import Path
+
+    k = ledger.kind_for
+    assert k(Path("x.md"), "<!-- liber proposal: writing analysis, 2026-10-18 -->\nbody") == "derived"
+    assert k(Path("x.md"), "<!-- liber proposal -->\nbody") == "proposal"
+    assert k(Path("x.md"), "<!-- liber interview transcript -->\n") == "voice-interview"
+    assert k(Path("interview-2026-10-18-notes.md"), "notes") == "derived"
+    assert k(Path("x.md"), "<!-- liber transcript: AssemblyAI -->\n") == "talk-audio"
+    assert k(Path("transcript-foo.md"), "# T") == "interview-written"
+    assert k(Path("my-journal.md"), "text") == "journal"
+    assert k(Path("x.pdf"), None) == "document"
+
+
+def test_sweep_derived_counts_nothing(vault):
+    from datetime import date
+
+    (_inbox(vault) / "p.md").write_text("<!-- liber proposal: writing analysis, 2026-10-18 -->\nsome words", encoding="utf-8")
+    assert ledger.sweep(vault, date(2026, 10, 18), include_notes=False) == 1
+    (entry,) = ledger.load(vault).values()
+    assert entry.kind == "derived" and entry.items == 0 and entry.words == 0 and entry.owner_words == 0

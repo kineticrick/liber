@@ -10,7 +10,7 @@ from typing import Callable
 
 from liber.errors import LiberError
 from liber.interview.transcript import slugify
-from liber.ledger import Entry, file_key, owner_name, owner_words, record, word_count
+from liber.ledger import Entry, amend, file_key, load, owner_name, owner_words, record, word_count
 from liber.paths import free_name
 from liber.server.settings import check_secrets_mode, read_secret_values
 
@@ -181,11 +181,13 @@ def run_transcribe(
     path.write_text(markdown, encoding="utf-8")
     try:
         year = int(recording.date[:4]) if recording.date else None
-        record(vault, Entry(
+        entry = Entry(
             key="url:" + url, kind="talk-audio", date=date.today().isoformat(), tool="liber transcribe",
             path=path.relative_to(vault).as_posix(), label=recording.title, words=word_count(markdown),
             owner_words=owner_words(markdown, owner_name()), audio_seconds=recording.duration,
-            years=[year, year] if year else None, files=[file_key(path)]))
+            years=[year, year] if year else None, files=[file_key(path)])
+        if not record(vault, entry):  # a re-run: the sweep must not count the new file as fresh input
+            amend(vault, entry.key, files=[*(load(vault)[entry.key].files or []), *entry.files])
     except OSError as exc:  # the transcript is already safe in the inbox
         log.warning("couldn't write the ledger entry for %s (%s)", path.name, exc)
     heard = {t.speaker for t in turns}

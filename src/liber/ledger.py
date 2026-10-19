@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import tomllib
+from datetime import date, datetime
 from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
 
@@ -162,3 +163,75 @@ _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 def word_count(text: str) -> int:
     text = _FRONTMATTER.sub("", text, count=1)
     return len(_COMMENT.sub("", text).split())
+
+
+def kind_for(path: Path, text: str | None) -> str:
+    first = (text or "").split("\n", 1)[0].strip()
+    name = path.name
+    if first.startswith("<!-- liber proposal: "):
+        return "derived"
+    if first == "<!-- liber proposal -->":
+        return "proposal"
+    if first == "<!-- liber interview transcript -->":
+        return "voice-interview"
+    if name.startswith("interview-") and name.endswith("-notes.md"):
+        return "derived"
+    if first.startswith("<!-- liber transcript: AssemblyAI"):
+        return "talk-audio"
+    if name.startswith("transcript-"):
+        return "interview-written"
+    if "journal" in name.lower():
+        return "journal"
+    return "document"
+
+
+def _read(path: Path) -> str | None:
+    if path.suffix.lower() not in (".md", ".txt"):
+        path = path.with_name(path.name + ".md")
+    if not path.is_file():
+        return None
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def sweep(vault: Path, today: date, include_notes: bool) -> int:
+    """Record inbox items that arrived without a liber command; return how many are new."""
+    from liber.inbox import is_sidecar, pending_notes  # inbox imports this module
+
+    known = known_file_keys(load(vault))
+    recorded = 0
+    inbox = vault / "inbox"
+    for path in sorted(inbox.iterdir()) if inbox.is_dir() else []:
+        if path.name.startswith(".") or not path.is_file() or is_sidecar(path):
+            continue
+        key = file_key(path)
+        if key in known:
+            continue
+        text = _read(path)
+        kind = kind_for(path, text)
+        if kind in ("proposal", "derived"):
+            words, owner, items = (0, 0, 0) if kind == "derived" else (word_count(text or ""), 0, 1)
+        else:
+            words = word_count(text) if text is not None else None
+            owner = owner_words(text, owner_name()) if kind in ("talk-audio", "interview-written", "voice-interview") and text else words
+            items = 1
+        day = datetime.fromtimestamp(path.stat().st_mtime).date().isoformat()
+        known.add(key)
+        recorded += record(vault, Entry(
+            key=key, kind=kind, date=day, tool="sweep", path=path.relative_to(vault).as_posix(),
+            label=path.name, items=items, words=words, owner_words=owner))
+    if include_notes:
+        for line in pending_notes(vault):
+            m = re.match(r"^-\s*(\d{4}-\d{2}-\d{2})\b[^—]*—\s*(.*)$", line)
+            body = m[2] if m else line.lstrip("-* ").strip()
+            n = word_count(body)
+            recorded += record(vault, Entry(
+                key=note_key(body), kind="note", date=m[1] if m else today.isoformat(), tool="sweep",
+                words=n, owner_words=n))
+    for key, e in load(vault).items():
+        if e.words is None and e.path:
+            sidecar = vault / (e.path + ".md")
+            if sidecar.is_file():
+                text = sidecar.read_text(encoding="utf-8", errors="replace")
+                n = word_count(text)
+                amend(vault, key, words=n, owner_words=owner_words(text, owner_name()) if e.kind in ("talk-audio", "interview-written", "voice-interview") else n)
+    return recorded

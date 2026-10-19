@@ -29,7 +29,7 @@ def sidecar_for(doc: Path) -> Path:
     return doc.with_name(doc.name + ".md")
 
 
-def _is_sidecar(path: Path) -> bool:
+def is_sidecar(path: Path) -> bool:
     return path.name.endswith(".md") and path.with_name(path.name[:-3]).is_file()
 
 
@@ -117,7 +117,7 @@ def inbox_documents(vault: Path) -> list[InboxDocument]:
     docs = [
         InboxDocument(p.name, _state(p), p.stat().st_mtime)
         for p in inbox.iterdir()
-        if not p.name.startswith(".") and not _is_sidecar(p)
+        if not p.name.startswith(".") and not is_sidecar(p)
     ]
     return sorted(docs, key=lambda d: (d.mtime, d.name))
 

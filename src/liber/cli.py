@@ -19,6 +19,7 @@ from liber.config import resolve_vault, write_user_config
 from liber.errors import LiberError
 from liber.extract import extract_pending
 from liber.inbox import add_files, add_note, inbox_status
+from liber.ledger import sweep
 from liber.scaffold import default_skills_dir, init_vault
 from liber.server.settings import load_ceilings, load_secrets, load_server_settings
 from liber.server.tokens import TokenStore
@@ -99,7 +100,12 @@ def add_cmd(files: Annotated[list[Path], typer.Argument(help="Documents to copy 
 def status_cmd() -> None:
     """Show what's waiting in the inbox."""
     with handle_errors():
-        status = inbox_status(resolve_vault())
+        vault = resolve_vault()
+        try:
+            sweep(vault, date.today(), include_notes=False)
+        except OSError:  # status is read-only in spirit; a stuck ledger mustn't break it
+            pass
+        status = inbox_status(vault)
     typer.echo(f"Inbox notes: {len(status.notes)}")
     for line in status.notes:
         typer.echo(f"  {line}")
@@ -200,6 +206,20 @@ def serve_cmd(
             from liber.server.app import build_server
 
             build_server("stdio", load_ceilings()).run(transport="stdio", show_banner=False)
+
+
+ledger_app = typer.Typer(no_args_is_help=True, help="Maintain the input ledger (ledger.jsonl).")
+app.add_typer(ledger_app, name="ledger")
+
+
+@ledger_app.command("sweep")
+def ledger_sweep_cmd(
+    notes: Annotated[bool, typer.Option("--notes", help="Also record pending notes in inbox.md.")] = False,
+) -> None:
+    """Record inbox items that arrived without a liber command (e.g. phone capture)."""
+    with handle_errors():
+        n = sweep(resolve_vault(), date.today(), include_notes=notes)
+    typer.echo(f"Recorded {n} new item(s).")
 
 
 token_app = typer.Typer(no_args_is_help=True, help="Manage service tokens for the HTTP server (e.g. the voice backend).")

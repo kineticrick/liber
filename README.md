@@ -299,6 +299,7 @@ GitHub sign-ins last up to a year. They end when you run `liber logout-all`, rem
 | `liber note "text"` | Add a dated note to `inbox.md` |
 | `liber add <file>…` | Copy documents into `inbox/`, never overwriting |
 | `liber status` | Show waiting notes, documents (and whether they've been converted to text), and sync conflicts |
+| `liber ledger sweep [--notes]` | Record inbox items that arrived without a liber command (e.g. phone capture) in `ledger.jsonl`; `liber status` does this for files automatically |
 | `liber extract` | Convert waiting PDF, Word, and HTML documents to Markdown text |
 | `liber archive <name>` | Move a processed document (and its text) to `sources/documents/`, printing the final name |
 | `liber archive --notes [--count N]` | Move processed notes (optionally only the first N) to `sources/notes/<YYYY-MM>.md` |

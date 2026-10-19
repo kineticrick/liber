@@ -134,6 +134,21 @@ def test_run_transcribe_records_ledger(vault):
     assert len(load(vault)) == 1
 
 
+def test_run_transcribe_leaves_nothing_for_the_sweep(vault):
+    from datetime import date
+
+    from liber.ledger import load, sweep
+
+    download, fake = fake_pipeline([utterance("Rick", 0, "Hello.")])
+    transcribe.run_transcribe("https://youtu.be/x", ["Rick"], None, vault, "aai-key", download=download, transcribe_audio=fake)
+    assert sweep(vault, date.today(), include_notes=False) == 0
+    download, fake2 = fake_pipeline([utterance("Rick", 0, "Hello, again.")])
+    transcribe.run_transcribe("https://youtu.be/x", ["Rick"], None, vault, "aai-key", download=download, transcribe_audio=fake2)
+    (entry,) = load(vault).values()
+    assert entry.kind == "talk-audio" and len(entry.files) == 2
+    assert sweep(vault, date.today(), include_notes=False) == 0
+
+
 def test_load_key_prefers_environment(monkeypatch):
     write_secret_values({"assemblyai_api_key": "stored"})
     monkeypatch.setenv("ASSEMBLYAI_API_KEY", "from-env")
