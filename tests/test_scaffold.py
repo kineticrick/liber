@@ -94,3 +94,9 @@ def test_cli_init_refuses_non_empty(tmp_path, fake_skills, monkeypatch):
     result = CliRunner().invoke(app, ["init", str(tmp_path)])
     assert result.exit_code == 1
     assert "error:" in result.output
+
+
+def test_init_creates_empty_ledger(vault):
+    ledger = vault / "ledger.jsonl"
+    assert ledger.is_file()
+    assert ledger.read_text(encoding="utf-8") == ""
