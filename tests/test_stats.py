@@ -121,7 +121,7 @@ def test_growth_commit_month_is_local(tmp_path, vault):
 
 
 def test_earliest_year_ignores_out_of_range(vault):
-    text = "- a 1850 (src: [[x]])\n- b 2150 (src: [[x]])\n- c 2020 (src: [[x]])\n"
+    text = "- a (1850) (src: [[x]])\n- b (2150) (src: [[x]])\n- c (2020) (src: [[x]])\n"
     assert _out(vault, [("interests/x.md", text)]).earliest_year == 2020
 
 
@@ -195,8 +195,18 @@ def test_unknown_owner_words_note(vault):
     ledger.record(vault, _entry("b", kind="talk-audio", words=500))
     rep = stats.build_report(vault, date(2026, 10, 18))
     assert rep["owner_words_unknown"] == 1
-    assert "Note: 1 item(s) have no owner word count yet (set [owner] name in ~/.config/liber/config.toml)." in stats.render_text(rep)
-    assert "10 words" in stats.render_text(rep)
+    lines = stats.render_text(rep).splitlines()
+    assert lines[0].startswith("liber has taken in 10 words") and lines[1].startswith("It stores") and lines[2] == ""
+    assert lines[3] == NOTE_ONE and lines[4] == ""
+    md = stats.render_markdown(rep)
+    assert md.index("It stores") < md.index(NOTE_ONE) < md.index("## Input")
+    ledger.record(vault, _entry("c", kind="talk-audio", words=5))
+    assert ("Note: 2 items don't have a count of my own words yet and are left out of the total"
+            in stats.render_text(stats.build_report(vault, date(2026, 10, 18))))
+
+
+NOTE_ONE = ("Note: 1 item doesn't have a count of my own words yet and is left out of the total "
+            "(set [owner] name in ~/.config/liber/config.toml, or give --owner-words to liber ledger record).")
 
 
 def test_recorded_cost_and_no_ledger(vault):
@@ -247,3 +257,54 @@ def test_cost_rounded(vault):
     ledger.record(vault, _entry("a", cost_usd=0.1, cost_basis="x"))
     ledger.record(vault, _entry("b", cost_usd=0.2, cost_basis="x"))
     assert stats.build_report(vault, date(2026, 10, 18))["recorded_cost_usd"] == 0.3
+
+
+def test_earliest_year_only_from_date_tokens(vault):
+    out = lambda t: _out(vault, [("interests/x.md", t)]).earliest_year  # noqa: E731
+    assert out("- I love the 1911 Group. (2020) (src: [[s]])\n") == 2020
+    assert out("- Worked there [2005] and in 1990 too (src: [[s]])\n") == 2005
+    assert out("- 2003-05 moved to Austin, said it was 1980s vibes (src: [[s]])\n") == 2003
+    assert out("- Since the 1911 merger (src: [[s]])\n") is None
+
+
+def test_growth_includes_ledger_months_before_first_commit(tmp_path, vault):
+    repo = _repo(tmp_path, vault)
+    write(repo / "interests/x.md", FACT)
+    _commit(repo, "one", "2026-10-05")
+    lines = [{"key": "k1", "kind": "note", "date": "2026-08-20", "tool": "t", "words": 7, "owner_words": 7},
+             {"key": "k2", "kind": "note", "date": "2026-11-02", "tool": "t", "words": 3, "owner_words": 3}]
+    (repo / "ledger.jsonl").write_text("".join(json.dumps(x) + "\n" for x in lines), encoding="utf-8")
+    rows = stats.growth(repo, date(2026, 10, 18))
+    assert [(r.month, r.owner_words_in, r.facts) for r in rows] == [
+        ("2026-08", 7, 0), ("2026-09", 0, 0), ("2026-10", 0, 1), ("2026-11", 3, 1)]
+
+
+def test_backfill_hint_for_pre_existing_vault(vault):
+    from datetime import datetime
+
+    from liber import ledger
+    from liber.inbox import add_note
+
+    write(vault / "sources/documents/old.md", "written long ago")
+    add_note(vault, "a fresh note", datetime(2026, 10, 18, 9, 0))
+    rep = stats.build_report(vault, date(2026, 10, 18))
+    assert stats.BACKFILL_HINT in stats.render_text(rep) and stats.BACKFILL_HINT in stats.render_markdown(rep)
+    ledger.backfill(vault, date.today())
+    rep = stats.build_report(vault, date(2026, 10, 18))
+    assert stats.BACKFILL_HINT not in stats.render_text(rep) and stats.BACKFILL_HINT not in stats.render_markdown(rep)
+
+
+def test_no_backfill_hint_for_a_new_vault(vault):
+    from datetime import datetime
+
+    from liber.inbox import add_note
+
+    add_note(vault, "a fresh note", datetime(2026, 10, 18, 9, 0))
+    assert stats.BACKFILL_HINT not in stats.render_text(stats.build_report(vault, date(2026, 10, 18)))
+
+
+def test_output_words_row_says_stored(vault):
+    write(vault / "interests/x.md", FACT)
+    rep = stats.build_report(vault, date(2026, 10, 18))
+    assert any(l.strip().startswith("words stored ") for l in stats.render_text(rep).splitlines())
+    assert "| words stored |" in stats.render_markdown(rep)

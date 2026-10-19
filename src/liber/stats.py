@@ -14,7 +14,10 @@ from liber.vaultconfig import VaultConfig, load_vault_config
 
 FACT_LINE = re.compile(r"^\s*[-*] .*\(src: ", re.M)
 _SRC = re.compile(r"\(src:.*?\)")
-_YEAR = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
+# Only date tokens carry a year: one opening a (…) or […] group, e.g. (2026-10), [1995–1999], or a list item
+# that starts with a date. Other numbers in a fact's prose ("the 1911 Group") are not dates.
+_YEAR = re.compile(r"(?:[(\[]|^\s*[-*]\s+)((?:19|20)\d{2})(?!\d)")
+_MONTH = re.compile(r"\d{4}-\d{2}")
 
 
 @dataclass
@@ -122,7 +125,7 @@ def _facts_at(vault: Path, sha: str, cfg: VaultConfig) -> int | None:
 def _words_by_month(vault: Path) -> dict[str, tuple[int, int]]:
     sums: dict[str, tuple[int, int]] = {}
     for key, e in ledger.load(vault).items():
-        if e.kind == "derived" or key.startswith("meta:"):
+        if e.kind == "derived" or key.startswith("meta:") or not _MONTH.match(e.date or ""):
             continue
         w, o = sums.get(e.date[:7], (0, 0))
         sums[e.date[:7]] = (w + (e.words or 0), o + (e.owner_words or 0))
@@ -130,7 +133,8 @@ def _words_by_month(vault: Path) -> dict[str, tuple[int, int]]:
 
 
 def growth(vault: Path, today: date) -> list[MonthRow]:
-    """One row per month from the first commit to today. Without git history, just the current month."""
+    """One row per month from the first commit or ledger entry, whichever is earlier, to today (or the last
+    ledger month, if later). Without git history, just the current month."""
     cfg = load_vault_config(vault)
     this_month = today.isoformat()[:7]
     inputs = _words_by_month(vault)
@@ -149,8 +153,9 @@ def growth(vault: Path, today: date) -> list[MonthRow]:
         return [MonthRow(this_month, w, o, facts, facts)]
     rows: list[MonthRow] = []
     previous = 0
-    month = months[0]
-    while month <= this_month:
+    month = min([months[0], *inputs])  # input recorded before the first commit still shows
+    end = max([this_month, *inputs])
+    while month <= end:
         facts = _facts_at(vault, last[month][1], cfg) if month in last else None
         if facts is None:
             facts = previous
@@ -200,6 +205,8 @@ def build_report(vault: Path, today: date) -> Report:
         owner_words_unknown=unknown,
         output=asdict(out), growth=[asdict(r) for r in growth(vault, today)],
         has_ledger=ledger.ledger_path(vault).is_file(),
+        # A vault that archived sources before the ledger existed is undercounted until it is backfilled.
+        needs_backfill="meta:backfill" not in ledger.load(vault) and bool(out.sources),
     )
 
 
@@ -226,10 +233,18 @@ def _headline(r: Report) -> list[str]:
     if sources:
         s += f", drawn from {sources:,} archived {_plural(sources, 'source')}"
     lines.append(s + ".")
-    if r["owner_words_unknown"]:
-        lines.append(f"Note: {r['owner_words_unknown']} item(s) have no owner word count yet "
-                     "(set [owner] name in ~/.config/liber/config.toml).")
     return lines
+
+
+def _owner_note(r: Report) -> str | None:
+    """Not part of the quotable headline: why the owner-words total leaves some items out."""
+    n = r["owner_words_unknown"]
+    if not n:
+        return None
+    verb = "item doesn't have a count of my own words yet and is" if n == 1 else \
+        "items don't have a count of my own words yet and are"
+    return (f"Note: {n} {verb} left out of the total (set [owner] name in ~/.config/liber/config.toml, "
+            "or give --owner-words to liber ledger record).")
 
 
 def _bar(value: int, top: int) -> str:
@@ -254,7 +269,7 @@ def _output_cells(r: Report) -> list[list[str]]:
     o = r["output"]
     rows = [["facts", f"{o['facts']:,}"], ["private facts", f"{o['private_facts']:,}"],
             ["people", f"{o['people']:,}"], ["interests", f"{o['interests']:,}"],
-            ["projects", f"{o['projects']:,}"], ["files", f"{o['files']:,}"], ["words", f"{o['words']:,}"]]
+            ["projects", f"{o['projects']:,}"], ["files", f"{o['files']:,}"], ["words stored", f"{o['words']:,}"]]
     rows += [[f"sources/{name}", f"{n:,}"] for name, n in sorted(o["sources"].items())]
     return rows
 
@@ -274,10 +289,17 @@ def _growth_cells(r: Report) -> list[list[str]]:
 
 
 NO_LEDGER = "No input ledger yet. Run: liber ledger backfill"
+BACKFILL_HINT = "Input archived before the ledger began isn't counted yet. Run: liber ledger backfill"
+
+
+def _input_hint(r: Report) -> str | None:
+    return NO_LEDGER if not r["has_ledger"] else BACKFILL_HINT if r["needs_backfill"] else None
 
 
 def render_text(r: Report) -> str:
     out = _headline(r) + [""]
+    if note := _owner_note(r):
+        out += [note, ""]
     out.append("Input")
     if r["has_ledger"]:
         out += [f"  {c[0]:<18}{c[1]:>8} items {c[2]:>12} words {c[3]:>12} mine  {c[4]}".rstrip() for c in _input_cells(r)]
@@ -285,8 +307,8 @@ def render_text(r: Report) -> str:
     out += ["", "Output"] + [f"  {c[0]:<24}{c[1]:>10}" for c in _output_cells(r)]
     out += ["", "Growth (facts per month)"]
     out += [f"  {c[0]}  {c[1]:<{BAR_WIDTH}}  {c[2]:>7} ({c[3]}), {c[4]} of my words in".rstrip() for c in _growth_cells(r)]
-    if not r["has_ledger"]:
-        out += ["", NO_LEDGER]
+    if hint := _input_hint(r):
+        out += ["", hint]
     return "\n".join(out) + "\n"
 
 
@@ -299,12 +321,14 @@ def render_markdown(r: Report) -> str:
     out: list[str] = []
     for line in _headline(r):
         out += [line, ""]
+    if note := _owner_note(r):
+        out += [note, ""]
     out += ["## Input", ""]
     if r["has_ledger"]:
         out += _table(["Kind", "Items", "Words", "My words", "Audio / voice"], _input_cells(r)) + [""]
         out += [f"- {e}" for e in _extras(r)] + ([""] if _extras(r) else [])
-    else:
-        out += [NO_LEDGER, ""]
+    if hint := _input_hint(r):
+        out += [hint, ""]
     out += ["## Output", ""] + _table(["What", "Count"], _output_cells(r)) + [""]
     out += ["## Growth", ""] + _table(["Month", "Facts", "Total", "Added", "My words in"],
                                       [[c[0], c[1], c[2], c[3], c[4]] for c in _growth_cells(r)]) + [""]
