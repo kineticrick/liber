@@ -301,6 +301,30 @@ def server_doctor_cmd() -> None:
         raise typer.Exit(1)
 
 
+@app.command("transcribe")
+def transcribe_cmd(
+    url: Annotated[str, typer.Argument(help="A recording's link: YouTube, a shared Google Drive file, etc.")],
+    speakers: Annotated[str, typer.Option("--speakers", help="Who speaks, comma-separated, e.g. \"Jake O'Shea, Rick Boone\"")],
+    note: Annotated[Optional[str], typer.Option("--note", help="A note for /ingest at the top of the transcript")] = None,
+) -> None:
+    """Transcribe a podcast or talk with named speakers (the transcript lands in inbox/)."""
+    from liber import transcribe
+
+    with handle_errors():
+        transcribe.require_transcribe_extra()
+        names = transcribe.parse_speakers(speakers)
+        key = transcribe.load_assemblyai_key()
+        vault = resolve_vault()
+        typer.echo("Downloading and transcribing; a long recording can take a few minutes…")
+        result = transcribe.run_transcribe(
+            url, names, note, vault, key, download=transcribe.download, transcribe_audio=transcribe.transcribe_audio)
+    typer.echo(f"Transcript: {result.path}")
+    if result.unmatched:
+        typer.secho(f"warning: no voice was matched to: {', '.join(result.unmatched)}; check the speaker labels",
+                    err=True, fg=typer.colors.YELLOW)
+    typer.echo("Next: open Claude Code in your vault and run /ingest.")
+
+
 @app.command("interview")
 def interview_cmd(
     topic: Annotated[Optional[str], typer.Argument(help="What to talk about; omit and liber picks a gap")] = None,

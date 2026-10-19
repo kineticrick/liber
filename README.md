@@ -13,14 +13,15 @@ The name comes from Carl Jung's *Liber Novus* ("The New Book"), better known as 
  ───────                     ───────                      ───
  inbox.md  (quick notes)  ┐
  inbox/    (documents)    │
- voice interviews         ├─► /ingest in Claude Code ─► vault files ─► liber bundle → any chatbot
+ voice interviews         │
+ talks + podcasts         ├─► /ingest in Claude Code ─► vault files ─► liber bundle → any chatbot
  AI sessions (proposals)  ┘   (you approve each change)   (git history)   liber serve (MCP) → AI tools
 ```
 
 - **The vault** (for example `~/liber-vault`) is your content: Markdown files with small frontmatter headers, a private git repo, and an Obsidian vault synced to your phone.
 - **This repo** is the tool: the `liber` command and two Claude Code skills, `/ingest` and `/review`.
 
-Every AI tool can reach the vault through liber's MCP server: Claude Code and Claude Desktop locally, and claude.ai (web and phone), ChatGPT and other cloud tools through `https://<your domain>/mcp`. See [Connect your AI tools](#connect-your-ai-tools). Voice interviews (below) let you fill the vault by talking, and [passive capture](#passive-capture-from-ai-sessions) lets your everyday Claude sessions notice things worth keeping.
+Every AI tool can reach the vault through liber's MCP server: Claude Code and Claude Desktop locally, and claude.ai (web and phone), ChatGPT and other cloud tools through `https://<your domain>/mcp`. See [Connect your AI tools](#connect-your-ai-tools). Voice interviews (below) let you fill the vault by talking, [`liber transcribe`](#transcribing-talks-and-podcasts) turns recordings of you speaking into transcripts, and [passive capture](#passive-capture-from-ai-sessions) lets your everyday Claude sessions notice things worth keeping.
 
 ## Install
 
@@ -157,6 +158,28 @@ liber interview --minutes 20 --model claude-opus-5-5
 
 Settings live in `~/.config/liber/config.toml` under `[interview]`: `name`, `model`, `notes_model`, `voice`, `max_minutes`, `warn_minutes`.
 
+## Transcribing talks and podcasts
+
+Podcasts, talks and workshops you've given are good material twice over: they capture how you speak, and they're full of facts about your life and work. `liber transcribe` downloads a recording, transcribes it with each speaker named, and saves the transcript to `inbox/` for `/ingest`.
+
+**Set up once**
+```bash
+cd ~/code/python/liber && uv tool install --editable '.[transcribe]' --force   # add voice too if you use it: '.[voice,transcribe]'
+```
+- Sign up at [AssemblyAI](https://www.assemblyai.com) and add your key to `~/.config/liber/secrets.toml` (mode 600) as `assemblyai_api_key = "…"`. `ASSEMBLYAI_API_KEY` overrides it.
+- YouTube downloads need a JavaScript runtime: [Node.js](https://nodejs.org) or [Deno](https://deno.com).
+
+**Transcribe**
+```bash
+liber transcribe "https://www.youtube.com/watch?v=…" --speakers "Jake O'Shea, Rick Boone"
+liber transcribe "<shared Google Drive link>" --speakers "Rick Boone" --note "Mine this for my career history too."
+```
+- **`--speakers`** lists who talks, comma-separated. AssemblyAI matches each voice to a name and uses the names to spell them right. With one name, other voices are labeled "Audience"; with several, unmatched voices are "Unidentified speaker". If a name isn't matched to any voice, liber warns you, so check the labels.
+- **`--note`** puts a note for `/ingest` at the top of the transcript, for example to use a long interview for every part of the vault, not only your voice.
+- **The file** is `inbox/transcript-<date>-<title>.md`: the title, publish date and link, then one line per turn with the speaker, a timestamp and their words, verbatim. Long monologues are split into timestamped paragraphs.
+- **Sources:** anything [yt-dlp](https://github.com/yt-dlp/yt-dlp) can download: YouTube, Google Drive files shared with "anyone with the link", Vimeo and most public sites. Spotify's audio is copy-protected, so for a Spotify podcast use the same episode's link from Apple Podcasts or the show's website.
+- **Cost and privacy:** AssemblyAI charges a small amount per hour of audio; check their pricing page. The audio goes to AssemblyAI; the transcript is saved only on your machine. The downloaded audio is deleted afterward.
+
 ## Passive capture from AI sessions
 
 Much of what's worth knowing about you comes out while you're doing something else: rewriting a draft into your own voice, rejecting a phrase because it sounds wrong, explaining why you prefer one approach. Passive capture asks Claude Code to notice those moments in any project and offer to send them to liber.
@@ -287,6 +310,7 @@ GitHub sign-ins last up to a year. They end when you run `liber logout-all`, rem
 | `liber server doctor` | Check the HTTP server end to end, as claude.ai and ChatGPT will see it |
 | `liber token create/list/revoke <name>` | Manage service tokens for tools that can't sign in |
 | `liber logout-all` | Sign out every connected cloud app |
+| `liber transcribe <url> --speakers "A, B" [--note text]` | Transcribe a podcast or talk with named speakers into `inbox/` |
 | `liber interview [TOPIC] [--continue] [--minutes N] [--model ID] [--no-browser]` | Voice interview; transcript and notes land in `inbox/` (`--setup`, `--notes <file>`, `--recover` for maintenance) |
 
 ## Development
