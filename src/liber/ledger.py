@@ -82,8 +82,15 @@ def load(vault: Path) -> dict[str, Entry]:
 
 
 def _append(vault: Path, obj: dict) -> None:
-    with ledger_path(vault).open("a", encoding="utf-8") as f:
-        f.write(json.dumps(obj, ensure_ascii=False) + "\n")
+    path = ledger_path(vault)
+    line = json.dumps(obj, ensure_ascii=False) + "\n"
+    if path.is_file() and path.stat().st_size:
+        with path.open("rb") as f:
+            f.seek(-1, 2)
+            if f.read(1) != b"\n":  # a crash left a partial last line; don't glue this record onto it
+                line = "\n" + line
+    with path.open("a", encoding="utf-8") as f:
+        f.write(line)
 
 
 def record(vault: Path, entry: Entry) -> bool:

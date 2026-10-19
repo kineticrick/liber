@@ -290,3 +290,16 @@ async def test_finalize_reports_voice_seconds(vault, tmp_path):
     await settle()
     result = await session.end("ended by user")
     assert result.voice_seconds == 125
+
+
+async def test_finalize_records_voice_interview(vault, tmp_path):
+    from liber.ledger import file_key, load
+
+    session, live = await _one_turn_session(vault, tmp_path)
+    live.connections[0].push({"type": "session.usage.updated", "usage": {"seconds": 125}})
+    await settle()
+    result = await session.end("ended by user")
+    (entry,) = load(vault).values()
+    assert entry.kind == "voice-interview" and entry.key == f"session:{session.id}"
+    assert entry.owner_words == 6 and entry.voice_seconds == 125 and entry.date == "2026-10-02"
+    assert entry.files == [file_key(result.transcript), file_key(result.notes)]

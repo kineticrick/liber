@@ -210,3 +210,12 @@ def test_hidden_file_names_are_invisible(vault, ceiling):
         with pytest.raises(LiberError):
             view.read(hidden)
     assert "HIDDENFILEMARK" in view.read("core/visible.md")
+
+
+def test_propose_records_proposal_with_zero_owner_words(vault):
+    from liber.ledger import load
+
+    VaultView(vault, "personal").propose("I left Acme in September.", None, "Claude", NOW)
+    (entry,) = load(vault).values()
+    assert entry.kind == "proposal" and entry.owner_words == 0 and entry.words == 5
+    assert entry.tool == "mcp propose_update" and entry.date == "2026-10-01"

@@ -1,15 +1,20 @@
 """`liber transcribe`: download a recording, transcribe it with named speakers, write the transcript to inbox/."""
 
+import logging
 import os
 import tempfile
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Callable
 
 from liber.errors import LiberError
 from liber.interview.transcript import slugify
+from liber.ledger import Entry, file_key, owner_name, owner_words, record, word_count
 from liber.paths import free_name
 from liber.server.settings import check_secrets_mode, read_secret_values
+
+log = logging.getLogger(__name__)
 
 SPEECH_MODELS = ["universal-3-5-pro", "universal-2"]
 SPLIT_WORDS = 250  # utterances longer than this are split at AssemblyAI's paragraph breaks
@@ -23,6 +28,7 @@ class Recording:
     url: str
     date: str | None  # YYYY-MM-DD the recording was published, when the site says
     audio: Path
+    duration: int | None = None  # seconds, when the site says
 
 
 @dataclass(frozen=True)
@@ -91,7 +97,9 @@ def download(url: str, workdir: Path) -> Recording:
     day = f"{raw[:4]}-{raw[4:6]}-{raw[6:]}" if len(raw) == 8 and raw.isdigit() else None
     # The title comes from the web page: keep it to one line so it can't forge header lines such as a note for /ingest.
     title = " ".join((info.get("title") or "").split()) or url
-    return Recording(title=title, url=url, date=day, audio=files[0])
+    seconds = info.get("duration")
+    duration = round(seconds) if isinstance(seconds, (int, float)) else None
+    return Recording(title=title, url=url, date=day, audio=files[0], duration=duration)
 
 
 def transcribe_audio(audio: Path, speakers: list[str], key: str) -> tuple[list, set[int]]:
@@ -169,6 +177,16 @@ def run_transcribe(
     inbox.mkdir(exist_ok=True)
     stem = "-".join(filter(None, ["transcript", recording.date, slugify(recording.title)]))
     path = inbox / free_name(inbox, f"{stem}.md")
-    path.write_text(render(recording, turns, speakers, note), encoding="utf-8")
+    markdown = render(recording, turns, speakers, note)
+    path.write_text(markdown, encoding="utf-8")
+    try:
+        year = int(recording.date[:4]) if recording.date else None
+        record(vault, Entry(
+            key="url:" + url, kind="talk-audio", date=date.today().isoformat(), tool="liber transcribe",
+            path=path.relative_to(vault).as_posix(), label=recording.title, words=word_count(markdown),
+            owner_words=owner_words(markdown, owner_name()), audio_seconds=recording.duration,
+            years=[year, year] if year else None, files=[file_key(path)]))
+    except OSError as exc:  # the transcript is already safe in the inbox
+        log.warning("couldn't write the ledger entry for %s (%s)", path.name, exc)
     heard = {t.speaker for t in turns}
     return TranscribeResult(path, [name for name in speakers if name not in heard])

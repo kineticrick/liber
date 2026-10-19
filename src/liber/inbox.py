@@ -1,16 +1,20 @@
 """Capturing notes and documents into the inbox, and reporting what's waiting."""
 
+import logging
 import re
 import shutil
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from liber.check import find_conflicts
 from liber.errors import LiberError
+from liber.ledger import Entry, file_key, note_key, record, word_count
 from liber.paths import free_name
 from liber.scaffold import template_root
 from liber.vaultconfig import load_vault_config
+
+log = logging.getLogger(__name__)
 
 NO_TEXT_MARKER = "<!-- liber: no text found -->"
 TEXT_SUFFIXES = {".md", ".txt"}
@@ -43,6 +47,14 @@ def pending_notes(vault: Path) -> list[str]:
     return [line.strip() for line in inbox.read_text(encoding="utf-8").splitlines() if _is_note_line(line)]
 
 
+def _record(vault: Path, entry: Entry) -> None:
+    """The capture is already safe in the inbox, so a ledger failure only warns."""
+    try:
+        record(vault, entry)
+    except OSError as exc:
+        log.warning("couldn't write the ledger entry for %s (%s)", entry.label or entry.key, exc)
+
+
 def add_note(vault: Path, text: str, now: datetime) -> str:
     text = " ".join(text.split())
     if not text:
@@ -53,6 +65,9 @@ def add_note(vault: Path, text: str, now: datetime) -> str:
     if existing and not existing.endswith("\n"):
         existing += "\n"
     inbox.write_text(existing + line + "\n", encoding="utf-8")
+    n = word_count(text)
+    _record(vault, Entry(key=note_key(text), kind="note", date=now.date().isoformat(), tool="liber note",
+                         words=n, owner_words=n))
     return line
 
 
@@ -69,6 +84,11 @@ def add_files(vault: Path, sources: list[Path]) -> list[Path]:
         dest = dest_dir / free_name(dest_dir, src.name)
         shutil.copy2(src, dest)
         added.append(dest)
+        text = dest.suffix.lower() in TEXT_SUFFIXES
+        _record(vault, Entry(
+            key=file_key(dest), kind="journal" if "journal" in dest.name.lower() else "document",
+            date=date.today().isoformat(), tool="liber add", path=dest.relative_to(vault).as_posix(),
+            label=dest.name, words=word_count(dest.read_text(encoding="utf-8", errors="replace")) if text else None))
     return added
 
 

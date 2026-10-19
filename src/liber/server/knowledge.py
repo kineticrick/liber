@@ -12,6 +12,7 @@ from pathlib import Path
 from liber.check import find_conflicts
 from liber.docs import content_paths, is_hidden_part, read_vault_file
 from liber.errors import LiberError
+from liber.ledger import Entry, file_key, record, word_count
 from liber.paths import free_name
 from liber.vaultconfig import load_vault_config, sensitivity_rank
 
@@ -235,6 +236,12 @@ class VaultView:
                     continue
             else:
                 raise LiberError("could not find a free proposal file name; try again")
+            try:
+                record(self.vault, Entry(
+                    key=file_key(inbox / name), kind="proposal", date=now.date().isoformat(), tool="mcp propose_update",
+                    path=f"inbox/{name}", label=name, words=word_count(body), owner_words=0))
+            except OSError as exc:  # the proposal is already safe in the inbox
+                log.warning("couldn't write the ledger entry for %s (%s)", name, exc)
         log.info("proposal saved: %s (%d characters)", name, len(body))
         return {
             "file": f"inbox/{name}",

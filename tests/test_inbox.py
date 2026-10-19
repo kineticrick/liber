@@ -103,3 +103,56 @@ def test_cli_note_add_status(configured_vault, tmp_path):
     assert "reconnected with Sam" in status.output
     assert "essay.pdf" in status.output and "needs extraction" in status.output
     assert "Sync conflicts: none" in status.output
+
+
+def test_add_note_records_ledger(vault):
+    from liber.ledger import load
+
+    add_note(vault, "hello there world", NOW)
+    (entry,) = load(vault).values()
+    assert entry.kind == "note" and entry.words == 3 and entry.owner_words == 3 and entry.date == "2026-09-30"
+
+
+def test_add_note_same_text_twice_counts_once(vault):
+    from liber.ledger import load
+
+    add_note(vault, "hello there world", NOW)
+    add_note(vault, "hello   there world", NOW)
+    assert len(load(vault)) == 1
+    assert (vault / "inbox.md").read_text(encoding="utf-8").count("hello there world") == 2
+
+
+def test_add_files_records_by_content(vault, tmp_path):
+    from liber.ledger import load
+
+    src = tmp_path / "report.pdf"
+    src.write_bytes(b"one")
+    first = add_files(vault, [src])[0]
+    add_files(vault, [src])
+    assert (vault / "inbox" / "report-2.pdf").is_file() and len(load(vault)) == 1
+    assert next(iter(load(vault).values())).words is None
+    first.unlink()
+    (vault / "inbox" / "report-2.pdf").unlink()
+    src.write_bytes(b"two")
+    add_files(vault, [src])
+    assert len(load(vault)) == 2
+
+
+def test_add_journal_kind(vault, tmp_path):
+    from liber.ledger import load
+
+    src = tmp_path / "Dream Journal.md"
+    src.write_text("---\nx: 1\n---\nlast night I flew\n", encoding="utf-8")
+    add_files(vault, [src])
+    (entry,) = load(vault).values()
+    assert entry.kind == "journal" and entry.words == 4 and entry.path == "inbox/Dream Journal.md"
+
+
+def test_ledger_failure_does_not_lose_the_note(vault, monkeypatch, caplog):
+    def boom(*a, **k):
+        raise OSError("read-only")
+
+    monkeypatch.setattr("liber.inbox.record", boom)
+    add_note(vault, "still saved", NOW)
+    assert "still saved" in (vault / "inbox.md").read_text(encoding="utf-8")
+    assert "ledger" in caplog.text

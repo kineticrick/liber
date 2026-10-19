@@ -17,6 +17,7 @@ from liber.interview import prompts
 from liber.interview.brain import CONTEXT_TURNS, Brain, LLMError, Opening
 from liber.interview.live import LiveClient, LiveConnection
 from liber.interview.settings import InterviewSettings, interviews_dir
+from liber.ledger import Entry, file_key, owner_words, record, word_count
 from liber.interview.transcript import AI, ME, TranscriptAssembler, dialogue, render_transcript, slugify
 from liber.paths import free_name
 
@@ -418,8 +419,21 @@ class InterviewSession:
         except Exception as exc:  # the transcript is already safe in the inbox; keep it and discard the draft
             log.warning("notes failed (%s)", type(exc).__name__)
             self.message = f"Transcript saved; the notes failed. Retry with: liber interview --notes {transcript_path}"
+        self._record_ledger(markdown, transcript_path, notes_path, day.isoformat())
         self._discard_workdir()
         return InterviewResult(transcript_path, notes_path, voice_seconds=self.voice_seconds)
+
+    def _record_ledger(self, markdown: str, transcript_path: Path, notes_path: Path | None, day: str) -> None:
+        """One entry per interview; the notes file is AI-written derivative and gets none of its own."""
+        try:
+            record(self.vault, Entry(
+                key="session:" + self.id, kind="voice-interview", date=day, tool="liber interview",
+                path=transcript_path.relative_to(self.vault).as_posix(), label=self.opening.topic,
+                words=word_count(markdown), owner_words=owner_words(markdown, "Me") or 0,
+                voice_seconds=round(self.voice_seconds),
+                files=[file_key(p) for p in (transcript_path, notes_path) if p]))
+        except OSError as exc:  # the transcript is already safe in the inbox
+            log.warning("couldn't write the ledger entry (%s)", exc)
 
     # ---- persistence and helpers --------------------------------------------------------------
 

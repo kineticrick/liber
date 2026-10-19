@@ -107,3 +107,13 @@ def test_owner_name_prefers_owner_section(tmp_path):
     assert ledger.owner_name() == "Rick"
     cfg.write_text('', encoding="utf-8")
     assert ledger.owner_name() is None
+
+
+def test_record_after_a_partial_last_line_is_not_lost(tmp_path):
+    first = Entry(key="a", kind="note", date="2026-10-01", tool="t")
+    ledger.record(tmp_path, first)
+    with ledger.ledger_path(tmp_path).open("a", encoding="utf-8") as f:
+        f.write('{"key": "frag')
+    second = Entry(key="b", kind="note", date="2026-10-01", tool="t")
+    assert ledger.record(tmp_path, second)
+    assert set(ledger.load(tmp_path)) == {"a", "b"}
