@@ -184,7 +184,8 @@ def build_report(vault: Path, today: date) -> Report:
         row["voice_seconds"] += e.voice_seconds or 0
         unknown += e.words is not None and e.owner_words is None
         for k, v in e.raw.items():
-            raw[k] = raw.get(k, 0) + v if isinstance(v, (int, float)) and isinstance(raw.get(k, 0), (int, float)) else v
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                raw[k] = raw.get(k, 0) + v  # numeric values only; anything else is never guessed at
         if e.cost_usd is not None:
             costs.append(e.cost_usd)
         years += e.years or []
@@ -194,7 +195,7 @@ def build_report(vault: Path, today: date) -> Report:
     out = output_now(vault)
     return dict(
         input=input_, read_to_get_there=raw,
-        recorded_cost_usd=sum(costs) if costs else None,
+        recorded_cost_usd=round(sum(costs), 2) if costs else None,
         years=[min(years), max(years)] if years else None,
         owner_words_unknown=unknown,
         output=asdict(out), growth=[asdict(r) for r in growth(vault, today)],
@@ -202,24 +203,28 @@ def build_report(vault: Path, today: date) -> Report:
     )
 
 
+def _plural(n: int, noun: str) -> str:
+    return noun if n == 1 else noun + "s"
+
+
 def _headline(r: Report) -> list[str]:
     owner_words = sum(k["owner_words"] for k in r["input"])
     hours = sum(k["audio_hours"] for k in r["input"])
     lines = []
     if owner_words:
-        s = f"liber has taken in {owner_words:,} words I've written or said"
-        if hours:
-            s += f", plus {hours:.1f} hours of talks"
+        s = f"liber has taken in {owner_words:,} {_plural(owner_words, 'word')} I've written or said"
+        if round(hours, 1) > 0:
+            s += f", plus {hours:.1f} {'hour' if round(hours, 1) == 1 else 'hours'} of talks"
         if r["years"]:
             s += f", spanning {r['years'][0]}–{r['years'][1]}"
         lines.append(s + ".")
     o = r["output"]
-    s = f"It stores {o['facts']:,} facts about me ({o['private_facts']:,} private)"
+    s = f"It stores {o['facts']:,} {_plural(o['facts'], 'fact')} about me ({o['private_facts']:,} private)"
     if o["earliest_year"]:
         s += f", going back to {o['earliest_year']}"
     sources = sum(o["sources"].values())
     if sources:
-        s += f", drawn from {sources:,} archived sources"
+        s += f", drawn from {sources:,} archived {_plural(sources, 'source')}"
     lines.append(s + ".")
     if r["owner_words_unknown"]:
         lines.append(f"Note: {r['owner_words_unknown']} item(s) have no owner word count yet "

@@ -153,7 +153,7 @@ def test_second_headline_line(vault):
     _report_vault(vault)
     second = stats.render_text(stats.build_report(vault, date(2026, 10, 18))).splitlines()[1]
     assert second == ("It stores 3 facts about me (1 private), going back to 1995, "
-                      "drawn from 1 archived sources.")
+                      "drawn from 1 archived source.")
 
 
 def test_derived_excluded_from_totals(vault):
@@ -169,10 +169,10 @@ def test_no_labels_or_paths_anywhere(vault):
     import json
     from liber import ledger
     _report_vault(vault)
-    ledger.record(vault, _entry("k", label="bloodwork.pdf", path="inbox/bloodwork.pdf", words=5, owner_words=5))
+    ledger.record(vault, _entry("sha256:secretkeyxyz", label="bloodwork.pdf", path="inbox/bloodwork.pdf", words=5, owner_words=5))
     rep = stats.build_report(vault, date(2026, 10, 18))
     for blob in (stats.render_text(rep), stats.render_markdown(rep), json.dumps(rep)):
-        assert "bloodwork" not in blob and "inbox/" not in blob
+        assert "bloodwork" not in blob and "inbox/" not in blob and "secretkeyxyz" not in blob
 
 
 def test_markdown_has_sections(vault):
@@ -217,3 +217,33 @@ def test_growth_bar(vault):
                      dict(month="2026-03", words_in=0, owner_words_in=0, facts=0, facts_added=0)]
     lines = [l for l in map(str.strip, stats.render_text(rep).splitlines()) if l.startswith("2026-")]
     assert "█" * 30 in lines[0] and "▏" in lines[1] and "█" not in lines[1] and "▏" not in lines[2]
+
+
+def test_headline_singular_forms(vault):
+    from liber import ledger
+    write(vault / "interests/x.md", "- a (2020) (src: [[s]])\n")
+    write(vault / "sources/documents/d.pdf", "x")
+    ledger.record(vault, _entry("a", kind="talk-audio", owner_words=1, words=1, audio_seconds=3600, years=[2020, 2020]))
+    lines = stats.render_text(stats.build_report(vault, date(2026, 10, 18))).splitlines()
+    assert lines[0] == "liber has taken in 1 word I've written or said, plus 1.0 hour of talks, spanning 2020–2020."
+    assert lines[1] == "It stores 1 fact about me (0 private), going back to 2020, drawn from 1 archived source."
+
+
+def test_tiny_audio_hours_omitted(vault):
+    from liber import ledger
+    ledger.record(vault, _entry("a", kind="talk-audio", owner_words=5, words=5, audio_seconds=60))
+    assert "hours of talks" not in stats.render_text(stats.build_report(vault, date(2026, 10, 18)))
+
+
+def test_raw_non_numeric_skipped(vault):
+    from liber import ledger
+    ledger.record(vault, _entry("a", raw={"n": 3, "note": "x"}))
+    ledger.record(vault, _entry("b", raw={"n": 4, "note": "y"}))
+    assert stats.build_report(vault, date(2026, 10, 18))["read_to_get_there"] == {"n": 7}
+
+
+def test_cost_rounded(vault):
+    from liber import ledger
+    ledger.record(vault, _entry("a", cost_usd=0.1, cost_basis="x"))
+    ledger.record(vault, _entry("b", cost_usd=0.2, cost_basis="x"))
+    assert stats.build_report(vault, date(2026, 10, 18))["recorded_cost_usd"] == 0.3
