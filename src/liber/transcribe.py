@@ -89,7 +89,9 @@ def download(url: str, workdir: Path) -> Recording:
         raise LiberError(f"couldn't download {url}: no audio was saved")
     raw = info.get("upload_date") or ""
     day = f"{raw[:4]}-{raw[4:6]}-{raw[6:]}" if len(raw) == 8 and raw.isdigit() else None
-    return Recording(title=info.get("title") or url, url=url, date=day, audio=files[0])
+    # The title comes from the web page: keep it to one line so it can't forge header lines such as a note for /ingest.
+    title = " ".join((info.get("title") or "").split()) or url
+    return Recording(title=title, url=url, date=day, audio=files[0])
 
 
 def transcribe_audio(audio: Path, speakers: list[str], key: str) -> tuple[list, set[int]]:

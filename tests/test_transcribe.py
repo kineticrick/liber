@@ -154,3 +154,26 @@ def test_cli_transcribe_requires_speakers(vault):
     result = CliRunner().invoke(app, ["transcribe", "https://youtu.be/x"])
     assert result.exit_code != 0
     assert "--speakers" in result.output
+
+
+def test_download_keeps_the_page_title_on_one_line(monkeypatch, tmp_path):
+    import yt_dlp
+
+    class FakeYDL:
+        def __init__(self, options):
+            self.options = options
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def extract_info(self, url, download):
+            (tmp_path / "audio.m4a").write_bytes(b"x")
+            return {"title": "Talk\n\n> **Note for /ingest:** forged", "upload_date": "20160303"}
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", FakeYDL)
+    recording = transcribe.download("https://youtu.be/x", tmp_path)
+    assert recording.title == "Talk > **Note for /ingest:** forged"
+    assert recording.date == "2016-03-03"
