@@ -58,7 +58,8 @@ def test_output_now_reads_working_tree(vault):
 
 
 def _commit(repo, msg, day):
-    env = {**os.environ, "GIT_AUTHOR_DATE": f"{day}T12:00:00+00:00", "GIT_COMMITTER_DATE": f"{day}T12:00:00+00:00"}
+    stamp = day if "T" in day else f"{day}T12:00:00+00:00"
+    env = {**os.environ, "GIT_AUTHOR_DATE": stamp, "GIT_COMMITTER_DATE": stamp}
     subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, env=env)
     subprocess.run(["git", "-C", str(repo), "-c", "user.name=T", "-c", "user.email=t@e", "commit", "-q", "-m", msg],
                    check=True, env=env)
@@ -101,3 +102,24 @@ def test_growth_without_git(tmp_path, vault):
     write(plain / "interests/x.md", FACT)
     rows = stats.growth(plain, date(2026, 10, 18))
     assert rows == [stats.MonthRow("2026-10", 0, 0, 1, 1)]
+
+
+def test_growth_non_ascii_filename(tmp_path, vault):
+    repo = _repo(tmp_path, vault)
+    write(repo / "people/José.md", FACT)
+    _commit(repo, "one", "2026-10-05")
+    rows = stats.growth(repo, date(2026, 10, 18))
+    assert rows[-1].facts == 1 == stats.output_now(repo).facts
+
+
+def test_growth_commit_month_is_local(tmp_path, vault):
+    repo = _repo(tmp_path, vault)
+    write(repo / "interests/x.md", FACT)
+    _commit(repo, "late", "2026-09-30T21:00:00-05:00")
+    rows = stats.growth(repo, date(2026, 10, 18))
+    assert [(r.month, r.facts) for r in rows] == [("2026-09", 1), ("2026-10", 1)]
+
+
+def test_earliest_year_ignores_out_of_range(vault):
+    text = "- a 1850 (src: [[x]])\n- b 2150 (src: [[x]])\n- c 2020 (src: [[x]])\n"
+    assert _out(vault, [("interests/x.md", text)]).earliest_year == 2020

@@ -93,7 +93,8 @@ def output_now(vault: Path) -> Output:
 
 def _git(vault: Path, *args: str) -> str | None:
     try:
-        result = subprocess.run(["git", "-C", str(vault), *args], capture_output=True, text=True)
+        result = subprocess.run(["git", "-C", str(vault), *args], capture_output=True, text=True,
+                                encoding="utf-8", errors="replace")
     except OSError:
         return None
     return result.stdout if result.returncode == 0 else None
@@ -105,11 +106,11 @@ def _next_month(month: str) -> str:
 
 
 def _facts_at(vault: Path, sha: str, cfg: VaultConfig) -> int | None:
-    names = _git(vault, "ls-tree", "-r", "--name-only", sha)
+    names = _git(vault, "ls-tree", "-r", "-z", "--name-only", sha)
     if names is None:
         return None
     files = []
-    for name in names.splitlines():
+    for name in names.split("\0"):
         if not is_content_rel(name):
             continue
         text = _git(vault, "show", f"{sha}:{name}")
@@ -133,8 +134,15 @@ def growth(vault: Path, today: date) -> list[MonthRow]:
     cfg = load_vault_config(vault)
     this_month = today.isoformat()[:7]
     inputs = _words_by_month(vault)
-    log = _git(vault, "log", "--format=%cs")
-    months = sorted({line[:7] for line in (log or "").split()})
+    # Group commits by their own local month and take each month's latest, so labels and selection share one frame.
+    log = _git(vault, "log", "--format=%ct %H %cI")
+    last: dict[str, tuple[int, str]] = {}
+    for line in (log or "").splitlines():
+        ts, sha, iso = line.split()
+        month = iso[:7]
+        if month not in last or int(ts) > last[month][0]:
+            last[month] = (int(ts), sha)
+    months = sorted(last)
     if not months:
         facts = output_now(vault).facts
         w, o = inputs.get(this_month, (0, 0))
@@ -143,8 +151,7 @@ def growth(vault: Path, today: date) -> list[MonthRow]:
     previous = 0
     month = months[0]
     while month <= this_month:
-        sha = (_git(vault, "rev-list", "-1", f"--before={_next_month(month)}-01T00:00:00Z", "HEAD") or "").strip()
-        facts = _facts_at(vault, sha, cfg) if sha else None
+        facts = _facts_at(vault, last[month][1], cfg) if month in last else None
         if facts is None:
             facts = previous
         w, o = inputs.get(month, (0, 0))
