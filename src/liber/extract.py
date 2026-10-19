@@ -51,8 +51,7 @@ def extract_pending(vault: Path, convert: Converter = markitdown_convert) -> lis
         sidecar = sidecar_for(path)
         if len("".join(text.split())) < MIN_TEXT_CHARS:
             sidecar.write_text(NO_TEXT_MARKER + "\n", encoding="utf-8")
-            results.append(ExtractResult(doc.name, "no-text"))
-            _amend_words(vault, path, 0)
+            results.append(ExtractResult(doc.name, "no-text"))  # words stay unknown; the sweep counts pasted text later
         else:
             sidecar.write_text(f"<!-- liber: extracted from {doc.name} -->\n\n{text.strip()}\n", encoding="utf-8")
             results.append(ExtractResult(doc.name, "extracted"))

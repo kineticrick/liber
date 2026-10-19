@@ -1,5 +1,6 @@
 """The input ledger: an append-only record of what has been fed into the vault."""
 
+import fnmatch
 import hashlib
 import json
 import logging
@@ -62,6 +63,10 @@ def build_manual_entry(*, kind: str, key: str, day: str, items: int, words: int 
                        audio_seconds: int | None, years: str | None, cost_usd: float | None, cost_basis: str | None,
                        raw: str | None, label: str | None, path: str | None, files: list[Path]) -> Entry:
     """Validate the flags of `liber ledger record` and build the Entry."""
+    try:
+        day = date.fromisoformat(day).isoformat()
+    except ValueError:
+        raise LiberError(f"--date must be YYYY-MM-DD, not '{day}'")
     span: list[int] | None = None
     if years:
         try:
@@ -92,7 +97,8 @@ def load(vault: Path) -> dict[str, Entry]:
         return {}
     known = {f.name for f in fields(Entry)}
     entries: dict[str, Entry] = {}
-    for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    # Undecodable bytes become U+FFFD, so the line fails to parse and is skipped like any other bad line.
+    for n, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
         if not line.strip():
             continue
         try:
@@ -180,7 +186,7 @@ def owner_words(markdown: str, owner: str | None) -> int | None:
         elif turns:
             turns[-1][1].append(line)
     has_me = any(label.strip().lower() == "me" for label, _ in turns)
-    if owner is None and not has_me:
+    if not turns or (owner is None and not has_me):  # no speaker turns at all: whose words is unknown
         return None
     return sum(len(" ".join(body).split()) for label, body in turns if _is_owner(label, owner))
 
@@ -203,8 +209,8 @@ def kind_for(path: Path, text: str | None) -> str:
         return "proposal"
     if first == "<!-- liber interview transcript -->":
         return "voice-interview"
-    if name.startswith("interview-") and name.endswith("-notes.md"):
-        return "derived"
+    if first == "<!-- liber interview notes -->" or fnmatch.fnmatchcase(name, "interview-*-notes*.md"):
+        return "derived"  # AI-written session notes, including regenerated (-notes-2.md) and renamed copies
     if first.startswith("<!-- liber transcript: AssemblyAI"):
         return "talk-audio"
     if name.startswith("transcript-"):
@@ -215,11 +221,16 @@ def kind_for(path: Path, text: str | None) -> str:
 
 
 def _read(path: Path) -> str | None:
-    if path.suffix.lower() not in (".md", ".txt"):
+    """The text of a text file, or of a binary's extracted sidecar; None if there is none yet."""
+    from liber.inbox import NO_TEXT_MARKER  # inbox imports this module
+
+    sidecar = path.suffix.lower() not in (".md", ".txt")
+    if sidecar:
         path = path.with_name(path.name + ".md")
     if not path.is_file():
         return None
-    return path.read_text(encoding="utf-8", errors="replace")
+    text = path.read_text(encoding="utf-8", errors="replace")
+    return None if sidecar and NO_TEXT_MARKER in text else text  # "no text found" is not a count of 0
 
 
 def _words_for(kind: str, text: str | None) -> tuple[int | None, int | None, int]:
@@ -227,9 +238,12 @@ def _words_for(kind: str, text: str | None) -> tuple[int | None, int | None, int
     if kind in ("proposal", "derived"):
         return (0, 0, 0) if kind == "derived" else (word_count(text or ""), 0, 1)
     words = word_count(text) if text is not None else None
-    interview = kind in ("talk-audio", "interview-written", "voice-interview")
+    interview = kind in TRANSCRIPT_KINDS
     owner = owner_words(text, owner_name()) if interview and text else words
     return words, owner, 1
+
+
+TRANSCRIPT_KINDS = frozenset({"talk-audio", "interview-written", "voice-interview"})
 
 
 _NOTE_LINE = re.compile(r"^-\s*(\d{4}-\d{2}-\d{2})\b[^—]*—\s*(.*)$")
@@ -245,7 +259,9 @@ def sweep(vault: Path, today: date, include_notes: bool) -> int:
     """Record inbox items that arrived without a liber command; return how many are new."""
     from liber.inbox import is_sidecar, pending_notes  # inbox imports this module
 
-    known = known_file_keys(load(vault))
+    entries = load(vault)
+    known = known_file_keys(entries)
+    by_path = {e.path: e for e in entries.values() if e.path and e.path.startswith("inbox/")}
     recorded = 0
     inbox = vault / "inbox"
     for path in sorted(inbox.iterdir()) if inbox.is_dir() else []:
@@ -254,13 +270,19 @@ def sweep(vault: Path, today: date, include_notes: bool) -> int:
         key = file_key(path)
         if key in known:
             continue
+        known.add(key)
+        rel = path.relative_to(vault).as_posix()
         text = _read(path)
+        if rel in by_path:  # the same inbox file, edited since it was recorded: update it, don't count it twice
+            e = by_path[rel]
+            words, owner, _ = _words_for(e.kind, text)
+            amend(vault, e.key, words=words, owner_words=owner, files=[*(e.files or []), key])
+            continue
         kind = kind_for(path, text)
         words, owner, items = _words_for(kind, text)
         day = datetime.fromtimestamp(path.stat().st_mtime).date().isoformat()
-        known.add(key)
         recorded += record(vault, Entry(
-            key=key, kind=kind, date=day, tool="sweep", path=path.relative_to(vault).as_posix(),
+            key=key, kind=kind, date=day, tool="sweep", path=rel,
             label=path.name, items=items, words=words, owner_words=owner))
     if include_notes:
         for line in pending_notes(vault):
@@ -269,13 +291,20 @@ def sweep(vault: Path, today: date, include_notes: bool) -> int:
             recorded += record(vault, Entry(
                 key=note_key(body), kind="note", date=day or today.isoformat(), tool="sweep",
                 words=n, owner_words=n))
+    owner = owner_name()
     for key, e in load(vault).items():
-        if e.words is None and e.path:
-            sidecar = vault / (e.path + ".md")
-            if sidecar.is_file():
-                text = sidecar.read_text(encoding="utf-8", errors="replace")
+        if not e.path or e.kind in ("proposal", "derived"):
+            continue
+        if e.words is None and Path(e.path).suffix.lower() not in (".md", ".txt"):
+            text = _read(vault / e.path)  # its extracted sidecar, once real text exists
+            if text is not None:
                 n = word_count(text)
-                amend(vault, key, words=n, owner_words=owner_words(text, owner_name()) if e.kind in ("talk-audio", "interview-written", "voice-interview") else n)
+                amend(vault, key, words=n, owner_words=owner_words(text, owner) if e.kind in TRANSCRIPT_KINDS else n)
+        elif e.kind in TRANSCRIPT_KINDS and e.owner_words is None and e.tool != "liber ledger record":
+            text = _read(vault / e.path)  # owner words were unknown; the owner's name may be set now
+            own = owner_words(text, owner) if text is not None else None
+            if own is not None:
+                amend(vault, key, owner_words=own)
     return recorded
 
 
@@ -309,7 +338,7 @@ def _git_added_date(vault: Path, path: Path) -> str:
 
 
 def backfill(vault: Path, cutoff: date) -> int:
-    """Record everything archived in sources/ on or before the cutoff; return how many items are new."""
+    """Record everything archived in sources/ on or before the cutoff; return how many items (not derived) are new."""
     from liber.inbox import _is_note_line, is_sidecar  # inbox imports this module
 
     entries = load(vault)
@@ -354,7 +383,7 @@ def backfill(vault: Path, cutoff: date) -> int:
         words, owner, items = _words_for(kind, text) if path.suffix.lower() in (".md", ".txt") else (None, None, 1)
         put(Entry(key=key, kind=kind, date=day, tool="backfill", path=rel, label=path.name,
                   items=items, words=words, owner_words=owner))
-        recorded += 1
+        recorded += kind != "derived"  # derived files are recorded for traceability but are not items
         if words is None and text is not None:
             n = word_count(text)
             _append(vault, {"key": key, "amends": True, "words": n,

@@ -156,3 +156,13 @@ def test_ledger_failure_does_not_lose_the_note(vault, monkeypatch, caplog):
     add_note(vault, "still saved", NOW)
     assert "still saved" in (vault / "inbox.md").read_text(encoding="utf-8")
     assert "ledger" in caplog.text
+
+
+def test_add_text_file_counts_all_words_as_owner(vault, tmp_path):
+    from liber.ledger import load
+
+    src = tmp_path / "essay.md"
+    src.write_text("I wrote these five words", encoding="utf-8")
+    add_files(vault, [src])
+    (entry,) = load(vault).values()
+    assert entry.kind == "document" and entry.words == 5 and entry.owner_words == 5

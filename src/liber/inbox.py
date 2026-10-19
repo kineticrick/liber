@@ -85,10 +85,11 @@ def add_files(vault: Path, sources: list[Path]) -> list[Path]:
         shutil.copy2(src, dest)
         added.append(dest)
         text = dest.suffix.lower() in TEXT_SUFFIXES
-        _record(vault, Entry(
+        words = word_count(dest.read_text(encoding="utf-8", errors="replace")) if text else None
+        _record(vault, Entry(  # documents and journals are the owner's own writing: all their words count
             key=file_key(dest), kind="journal" if "journal" in dest.name.lower() else "document",
             date=date.today().isoformat(), tool="liber add", path=dest.relative_to(vault).as_posix(),
-            label=dest.name, words=word_count(dest.read_text(encoding="utf-8", errors="replace")) if text else None))
+            label=dest.name, words=words, owner_words=words))
     return added
 
 

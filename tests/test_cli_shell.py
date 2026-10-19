@@ -72,3 +72,17 @@ def test_stats_json_and_md(configured_vault):
     import json
     assert "## Input" in runner.invoke(app, ["stats", "--md"]).output
     assert "output" in json.loads(runner.invoke(app, ["stats", "--json"]).output)
+
+
+def test_record_cli_rejects_bad_date(configured_vault):
+    r = runner.invoke(app, ["ledger", "record", "--kind", "email", "--key", "k", "--date", "2026-13-01"])
+    assert r.exit_code == 1 and "--date" in r.output
+
+
+def test_backfill_cli_counts_only_real_items(configured_vault):
+    docs = configured_vault / "sources" / "documents"
+    docs.mkdir(parents=True, exist_ok=True)
+    (docs / "mine.md").write_text("my words", encoding="utf-8")
+    (docs / "facts-from-writing.md").write_text("<!-- liber proposal: analysis -->\nai words", encoding="utf-8")
+    r = runner.invoke(app, ["ledger", "backfill"])
+    assert r.exit_code == 0 and "Backfilled 1 item." in r.output

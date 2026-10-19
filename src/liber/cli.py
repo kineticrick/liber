@@ -298,7 +298,7 @@ def ledger_backfill_cmd(
         except ValueError:
             raise LiberError(f"--cutoff must be YYYY-MM-DD, not '{cutoff}'")
         n = ledger_mod.backfill(resolve_vault(), day)
-    typer.echo(f"Backfilled {n} item(s).")
+    typer.echo(f"Backfilled {n} {'item' if n == 1 else 'items'}.")
 
 
 token_app = typer.Typer(no_args_is_help=True, help="Manage service tokens for the HTTP server (e.g. the voice backend).")

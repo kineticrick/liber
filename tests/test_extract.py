@@ -96,3 +96,24 @@ def test_extract_amends_words(configured_vault):
     extract_pending(vault, lambda p: "a b c d e f g h i j k l m n o p q r s t u v w x y z")
     (entry,) = ledger.load(vault).values()
     assert entry.words == 26
+
+
+def test_no_text_leaves_words_unknown_until_real_text_arrives(configured_vault):
+    from datetime import date
+
+    from liber import ledger
+
+    vault = configured_vault
+    src = vault.parent / "scan.pdf"
+    src.write_bytes(b"%PDF")
+    assert CliRunner().invoke(app, ["add", str(src)]).exit_code == 0
+    extract_pending(vault, lambda p: "  ")
+    (entry,) = ledger.load(vault).values()
+    assert entry.words is None
+    ledger.sweep(vault, date(2026, 10, 18), include_notes=False)
+    (entry,) = ledger.load(vault).values()
+    assert entry.words is None
+    (vault / "inbox" / "scan.pdf.md").write_text("pasted the text by hand here", encoding="utf-8")
+    ledger.sweep(vault, date(2026, 10, 18), include_notes=False)
+    (entry,) = ledger.load(vault).values()
+    assert entry.words == 6 and entry.owner_words == 6
