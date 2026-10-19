@@ -2,7 +2,7 @@
 
 import re
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
 
@@ -159,3 +159,148 @@ def growth(vault: Path, today: date) -> list[MonthRow]:
         previous = facts
         month = _next_month(month)
     return rows
+
+
+# --- the report: one dict feeds every renderer ---
+
+Report = dict  # the shape build_report returns; --json prints it as is
+
+BAR_WIDTH = 30
+
+
+def build_report(vault: Path, today: date) -> Report:
+    entries = {k: e for k, e in ledger.load(vault).items() if e.kind != "derived" and not k.startswith("meta:")}
+    kinds: dict[str, dict] = {}
+    raw: dict = {}
+    costs: list[float] = []
+    years: list[int] = []
+    unknown = 0
+    for e in entries.values():
+        row = kinds.setdefault(e.kind, dict(kind=e.kind, items=0, words=0, owner_words=0, audio_seconds=0, voice_seconds=0))
+        row["items"] += e.items
+        row["words"] += e.words or 0
+        row["owner_words"] += e.owner_words or 0
+        row["audio_seconds"] += e.audio_seconds or 0
+        row["voice_seconds"] += e.voice_seconds or 0
+        unknown += e.words is not None and e.owner_words is None
+        for k, v in e.raw.items():
+            raw[k] = raw.get(k, 0) + v if isinstance(v, (int, float)) and isinstance(raw.get(k, 0), (int, float)) else v
+        if e.cost_usd is not None:
+            costs.append(e.cost_usd)
+        years += e.years or []
+    input_ = [dict(kind=r["kind"], items=r["items"], words=r["words"], owner_words=r["owner_words"],
+                   audio_hours=r["audio_seconds"] / 3600, voice_hours=r["voice_seconds"] / 3600)
+              for r in sorted(kinds.values(), key=lambda r: r["kind"])]
+    out = output_now(vault)
+    return dict(
+        input=input_, read_to_get_there=raw,
+        recorded_cost_usd=sum(costs) if costs else None,
+        years=[min(years), max(years)] if years else None,
+        owner_words_unknown=unknown,
+        output=asdict(out), growth=[asdict(r) for r in growth(vault, today)],
+        has_ledger=ledger.ledger_path(vault).is_file(),
+    )
+
+
+def _headline(r: Report) -> list[str]:
+    owner_words = sum(k["owner_words"] for k in r["input"])
+    hours = sum(k["audio_hours"] for k in r["input"])
+    lines = []
+    if owner_words:
+        s = f"liber has taken in {owner_words:,} words I've written or said"
+        if hours:
+            s += f", plus {hours:.1f} hours of talks"
+        if r["years"]:
+            s += f", spanning {r['years'][0]}–{r['years'][1]}"
+        lines.append(s + ".")
+    o = r["output"]
+    s = f"It stores {o['facts']:,} facts about me ({o['private_facts']:,} private)"
+    if o["earliest_year"]:
+        s += f", going back to {o['earliest_year']}"
+    sources = sum(o["sources"].values())
+    if sources:
+        s += f", drawn from {sources:,} archived sources"
+    lines.append(s + ".")
+    if r["owner_words_unknown"]:
+        lines.append(f"Note: {r['owner_words_unknown']} item(s) have no owner word count yet "
+                     "(set [owner] name in ~/.config/liber/config.toml).")
+    return lines
+
+
+def _bar(value: int, top: int) -> str:
+    if value <= 0 or top <= 0:
+        return ""
+    return "█" * (value * BAR_WIDTH // top) or "▏"
+
+
+def _input_cells(r: Report) -> list[list[str]]:
+    rows = []
+    for k in r["input"]:
+        extra = []
+        if k["audio_hours"]:
+            extra.append(f"{k['audio_hours']:.1f} h audio")
+        if k["voice_hours"]:
+            extra.append(f"{k['voice_hours']:.1f} h voice")
+        rows.append([k["kind"], f"{k['items']:,}", f"{k['words']:,}", f"{k['owner_words']:,}", ", ".join(extra)])
+    return rows
+
+
+def _output_cells(r: Report) -> list[list[str]]:
+    o = r["output"]
+    rows = [["facts", f"{o['facts']:,}"], ["private facts", f"{o['private_facts']:,}"],
+            ["people", f"{o['people']:,}"], ["interests", f"{o['interests']:,}"],
+            ["projects", f"{o['projects']:,}"], ["files", f"{o['files']:,}"], ["words", f"{o['words']:,}"]]
+    rows += [[f"sources/{name}", f"{n:,}"] for name, n in sorted(o["sources"].items())]
+    return rows
+
+
+def _extras(r: Report) -> list[str]:
+    lines = [f"{k.replace('_', ' ')}: {v:,}" if isinstance(v, int) else f"{k.replace('_', ' ')}: {v}"
+             for k, v in sorted(r["read_to_get_there"].items())]
+    if r["recorded_cost_usd"] is not None:
+        lines.append(f"recorded cost: ${r['recorded_cost_usd']:,.2f}")
+    return lines
+
+
+def _growth_cells(r: Report) -> list[list[str]]:
+    top = max((g["facts"] for g in r["growth"]), default=0)
+    return [[g["month"], _bar(g["facts"], top), f"{g['facts']:,}", f"{g['facts_added']:+,}", f"{g['owner_words_in']:,}"]
+            for g in r["growth"]]
+
+
+NO_LEDGER = "No input ledger yet. Run: liber ledger backfill"
+
+
+def render_text(r: Report) -> str:
+    out = _headline(r) + [""]
+    out.append("Input")
+    if r["has_ledger"]:
+        out += [f"  {c[0]:<18}{c[1]:>8} items {c[2]:>12} words {c[3]:>12} mine  {c[4]}".rstrip() for c in _input_cells(r)]
+        out += [f"  {e}" for e in _extras(r)]
+    out += ["", "Output"] + [f"  {c[0]:<24}{c[1]:>10}" for c in _output_cells(r)]
+    out += ["", "Growth (facts per month)"]
+    out += [f"  {c[0]}  {c[1]:<{BAR_WIDTH}}  {c[2]:>7} ({c[3]}), {c[4]} of my words in".rstrip() for c in _growth_cells(r)]
+    if not r["has_ledger"]:
+        out += ["", NO_LEDGER]
+    return "\n".join(out) + "\n"
+
+
+def _table(head: list[str], rows: list[list[str]]) -> list[str]:
+    return ["| " + " | ".join(head) + " |", "| " + " | ".join("---" for _ in head) + " |"] + \
+           ["| " + " | ".join(c.replace("|", "\\|") for c in row) + " |" for row in rows]
+
+
+def render_markdown(r: Report) -> str:
+    out: list[str] = []
+    for line in _headline(r):
+        out += [line, ""]
+    out += ["## Input", ""]
+    if r["has_ledger"]:
+        out += _table(["Kind", "Items", "Words", "My words", "Audio / voice"], _input_cells(r)) + [""]
+        out += [f"- {e}" for e in _extras(r)] + ([""] if _extras(r) else [])
+    else:
+        out += [NO_LEDGER, ""]
+    out += ["## Output", ""] + _table(["What", "Count"], _output_cells(r)) + [""]
+    out += ["## Growth", ""] + _table(["Month", "Facts", "Total", "Added", "My words in"],
+                                      [[c[0], c[1], c[2], c[3], c[4]] for c in _growth_cells(r)]) + [""]
+    return "\n".join(out)

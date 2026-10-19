@@ -123,3 +123,97 @@ def test_growth_commit_month_is_local(tmp_path, vault):
 def test_earliest_year_ignores_out_of_range(vault):
     text = "- a 1850 (src: [[x]])\n- b 2150 (src: [[x]])\n- c 2020 (src: [[x]])\n"
     assert _out(vault, [("interests/x.md", text)]).earliest_year == 2020
+
+
+# --- liber stats report ---
+
+def _entry(key, **kw):
+    from liber import ledger
+    base = dict(kind="document", date="2026-10-18", tool="t")
+    return ledger.Entry(key=key, **{**base, **kw})
+
+
+def _report_vault(vault):
+    from liber import ledger
+    write(vault / "interests/x.md", "- a (1995-03) (src: [[s]])\n- b (2020) (src: [[s]])\n")
+    write(vault / "interests/p.md", "---\nsensitivity: private\n---\n- c (2021) (src: [[s]])\n")
+    write(vault / "sources/documents/d.pdf", "x")
+    ledger.record(vault, _entry("a", kind="email", owner_words=1000, words=1000, years=[2004, 2010]))
+    ledger.record(vault, _entry("b", kind="talk-audio", owner_words=234, words=300, audio_seconds=7200, years=[2020, 2026]))
+    return vault
+
+
+def test_headline_wording(vault):
+    _report_vault(vault)
+    first = stats.render_text(stats.build_report(vault, date(2026, 10, 18))).splitlines()[0]
+    assert first == "liber has taken in 1,234 words I've written or said, plus 2.0 hours of talks, spanning 2004–2026."
+
+
+def test_second_headline_line(vault):
+    _report_vault(vault)
+    second = stats.render_text(stats.build_report(vault, date(2026, 10, 18))).splitlines()[1]
+    assert second == ("It stores 3 facts about me (1 private), going back to 1995, "
+                      "drawn from 1 archived sources.")
+
+
+def test_derived_excluded_from_totals(vault):
+    from liber import ledger
+    _report_vault(vault)
+    before = stats.build_report(vault, date(2026, 10, 18))["input"]
+    ledger.record(vault, _entry("d", kind="derived", words=999, owner_words=0))
+    ledger.record(vault, _entry("meta:x", kind="other", words=999, owner_words=999))
+    assert stats.build_report(vault, date(2026, 10, 18))["input"] == before
+
+
+def test_no_labels_or_paths_anywhere(vault):
+    import json
+    from liber import ledger
+    _report_vault(vault)
+    ledger.record(vault, _entry("k", label="bloodwork.pdf", path="inbox/bloodwork.pdf", words=5, owner_words=5))
+    rep = stats.build_report(vault, date(2026, 10, 18))
+    for blob in (stats.render_text(rep), stats.render_markdown(rep), json.dumps(rep)):
+        assert "bloodwork" not in blob and "inbox/" not in blob
+
+
+def test_markdown_has_sections(vault):
+    _report_vault(vault)
+    md = stats.render_markdown(stats.build_report(vault, date(2026, 10, 18)))
+    assert "## Input" in md and "## Output" in md and "## Growth" in md
+    assert "| --- |" in md or "|---|" in md
+
+
+def test_read_to_get_there_sums_raw(vault):
+    from liber import ledger
+    ledger.record(vault, _entry("a", raw={"emails_exported": 18000}))
+    ledger.record(vault, _entry("b", raw={"emails_exported": 2}))
+    assert stats.build_report(vault, date(2026, 10, 18))["read_to_get_there"] == {"emails_exported": 18002}
+
+
+def test_unknown_owner_words_note(vault):
+    from liber import ledger
+    ledger.record(vault, _entry("a", owner_words=10, words=10))
+    ledger.record(vault, _entry("b", kind="talk-audio", words=500))
+    rep = stats.build_report(vault, date(2026, 10, 18))
+    assert rep["owner_words_unknown"] == 1
+    assert "Note: 1 item(s) have no owner word count yet (set [owner] name in ~/.config/liber/config.toml)." in stats.render_text(rep)
+    assert "10 words" in stats.render_text(rep)
+
+
+def test_recorded_cost_and_no_ledger(vault):
+    from liber import ledger
+    ledger.ledger_path(vault).unlink(missing_ok=True)
+    rep = stats.build_report(vault, date(2026, 10, 18))
+    assert rep["has_ledger"] is False and rep["recorded_cost_usd"] is None
+    assert stats.render_text(rep).rstrip().endswith("No input ledger yet. Run: liber ledger backfill")
+    ledger.record(vault, _entry("a", owner_words=1, words=1, cost_usd=1.5, cost_basis="invoice"))
+    rep = stats.build_report(vault, date(2026, 10, 18))
+    assert rep["recorded_cost_usd"] == 1.5 and "recorded cost" in stats.render_text(rep)
+
+
+def test_growth_bar(vault):
+    rep = stats.build_report(vault, date(2026, 10, 18))
+    rep["growth"] = [dict(month="2026-01", words_in=0, owner_words_in=0, facts=60, facts_added=60),
+                     dict(month="2026-02", words_in=0, owner_words_in=0, facts=1, facts_added=1),
+                     dict(month="2026-03", words_in=0, owner_words_in=0, facts=0, facts_added=0)]
+    lines = [l for l in map(str.strip, stats.render_text(rep).splitlines()) if l.startswith("2026-")]
+    assert "█" * 30 in lines[0] and "▏" in lines[1] and "█" not in lines[1] and "▏" not in lines[2]

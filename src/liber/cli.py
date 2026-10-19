@@ -209,6 +209,24 @@ def serve_cmd(
             build_server("stdio", load_ceilings()).run(transport="stdio", show_banner=False)
 
 
+@app.command("stats")
+def stats_cmd(
+    md: Annotated[bool, typer.Option("--md", help="Markdown instead of plain text.")] = False,
+    json_: Annotated[bool, typer.Option("--json", help="The raw report as JSON.")] = False,
+) -> None:
+    """Quotable numbers: what has gone into the vault, what it stores, and how it grew."""
+    import json
+
+    from liber import stats
+
+    with handle_errors():
+        report = stats.build_report(resolve_vault(), date.today())
+    if json_:
+        typer.echo(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        typer.echo((stats.render_markdown if md else stats.render_text)(report), nl=False)
+
+
 ledger_app = typer.Typer(no_args_is_help=True, help="Maintain the input ledger (ledger.jsonl).")
 app.add_typer(ledger_app, name="ledger")
 

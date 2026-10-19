@@ -60,3 +60,15 @@ def test_list_prints_labels(configured_vault):
     ledger.record(configured_vault, ledger.Entry(key="k", kind="document", date="2026-10-18", tool="t", label="my-label.pdf"))
     r = runner.invoke(app, ["ledger", "list"])
     assert r.exit_code == 0 and "my-label.pdf" in r.output
+
+
+def test_stats_without_ledger(configured_vault):
+    (configured_vault / "ledger.jsonl").unlink(missing_ok=True)
+    r = runner.invoke(app, ["stats"])
+    assert r.exit_code == 0 and "liber ledger backfill" in r.output
+
+
+def test_stats_json_and_md(configured_vault):
+    import json
+    assert "## Input" in runner.invoke(app, ["stats", "--md"]).output
+    assert "output" in json.loads(runner.invoke(app, ["stats", "--json"]).output)
