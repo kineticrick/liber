@@ -131,7 +131,7 @@ liber keeps count of what goes in and what comes out, so you can quote real numb
 
 - **Input** is counted the moment an item lands in the inbox. `liber note`, `liber add`, `liber transcribe`, `liber interview` and MCP proposals each record it. Anything that arrives without a liber command, such as a note typed on your phone, is recorded by a sweep (`liber ledger sweep --notes`) at the start of `/ingest`. `liber status` sweeps documents too.
 - **Output** is computed from the vault when you ask, so it cannot drift. A fact is a list item in a knowledge folder that carries at least one `(src: …)` link, which is how `/ingest` writes every fact. Private facts are counted, never shown.
-- **Owner words** are the words you wrote or said. Notes, documents, journals and emails count all their words. In a transcript, only the turns labeled with your name count. Total words include everyone else, such as a podcast host. Material written by an AI, such as MCP proposals and interview notes, counts as 0 owner words, though a proposal still counts as an item.
+- **Owner words** are the words you wrote or said. Notes, documents, journals and emails count all their words. In a transcript, only the turns labeled with your name count. Total words include everyone else, such as a podcast host. Material written by an AI, such as MCP proposals and interview notes (including regenerated ones), counts as 0 owner words, though a proposal still counts as an item. A document with no extractable text has no word count until you paste its text into its `.md` sidecar; the next sweep counts it. An inbox file you edit before `/ingest` stays one item, and the sweep updates its word count.
 - **Your name** comes from `[owner] name` in `~/.config/liber/config.toml`:
 
   ```toml
@@ -139,7 +139,7 @@ liber keeps count of what goes in and what comes out, so you can quote real numb
   name = "Your Name"
   ```
 
-  If it is missing, liber falls back to `[interview] name`. If neither is set, owner words for transcripts are left out, and `liber stats` says so.
+  If it is missing, liber falls back to `[interview] name`. If neither is set, or a transcript has no labeled speaker turns, its owner words are left out of the total, and `liber stats` says so in a note below the headline. Once you set the name, the next sweep fills in owner words for transcripts still in the inbox.
 - **The ledger** is `ledger.jsonl` at the vault root: one JSON line per captured item, append-only. Capture commands write to it but don't commit it. `/ingest` commits it as `ingest: ledger` along with its other commits. If Obsidian Sync leaves a conflict copy, `/ingest` merges it with `liber ledger merge`.
 
 `liber stats` prints the numbers. `--md` prints Markdown for pasting, and `--json` prints the raw report for other tools. For example:
@@ -156,9 +156,9 @@ Output
   ...
 ```
 
-The report lists input by kind, what the vault stores, and month-by-month growth. It never prints item names, labels, keys or paths, so `--md` output is safe to paste publicly. Labels stay in the ledger, and `liber ledger list` is the only command that shows them.
+The report lists input by kind, what the vault stores (`words stored` is the size of the vault's own knowledge files, not input), and month-by-month growth. The "going back to" year comes from fact dates such as `(2020)` or `[1995–1999]`, never from other numbers in a fact. It never prints item names, labels, keys or paths, so `--md` output is safe to paste publicly. Labels stay in the ledger, and `liber ledger list` is the only command that shows them.
 
-If your vault existed before this feature, run `liber ledger backfill` once. It records everything already archived in `sources/` as input, up to a cutoff date (`--cutoff YYYY-MM-DD`, default today) that is fixed by the first run. Items archived after the cutoff are recognized by content, so nothing is counted twice. For bulk imports that happen outside the CLI, use `liber ledger record`.
+If your vault existed before this feature, run `liber ledger backfill` once; `liber stats` reminds you until you do. It records everything already archived in `sources/` as input, up to a cutoff date (`--cutoff YYYY-MM-DD`, default today) that is fixed by the first run. Items archived after the cutoff are recognized by content, so nothing is counted twice. The count it prints leaves out derived files, which are recorded for traceability only. For bulk imports that happen outside the CLI, use `liber ledger record`.
 
 ## Voice interviews
 
