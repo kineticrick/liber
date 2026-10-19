@@ -91,6 +91,7 @@ To seed liber from notes you already have in another Obsidian vault, copy them i
 | `liber.toml` | The vault's structure (folders and their `type`), size limits, and sync settings |
 | `inbox.md`, `inbox/` | Quick notes and documents waiting for `/ingest` |
 | `open-questions.md` | Gaps to fill later |
+| `ledger.jsonl` | The input ledger: one line per captured item, written by the capture commands and committed by `/ingest` (see [Tallies](#tallies)) |
 | `core/`, `career/`, `people/`, `interests/`, `health/`, `finance/`, `goals/`, `log/` | Your knowledge base |
 | `sources/` | The originals everything came from: notes, documents, and (later) interviews |
 | `_templates/` | Obsidian templates, for example `person.md` |
@@ -123,6 +124,41 @@ sensitivity: personal # public | personal | private
 tags: []
 ---
 ```
+
+## Tallies
+
+liber keeps count of what goes in and what comes out, so you can quote real numbers about your own vault.
+
+- **Input** is counted the moment an item lands in the inbox. `liber note`, `liber add`, `liber transcribe`, `liber interview` and MCP proposals each record it. Anything that arrives without a liber command, such as a note typed on your phone, is recorded by a sweep (`liber ledger sweep --notes`) at the start of `/ingest`. `liber status` sweeps documents too.
+- **Output** is computed from the vault when you ask, so it cannot drift. A fact is a list item in a knowledge folder that carries at least one `(src: …)` link, which is how `/ingest` writes every fact. Private facts are counted, never shown.
+- **Owner words** are the words you wrote or said. Notes, documents, journals and emails count all their words. In a transcript, only the turns labeled with your name count. Total words include everyone else, such as a podcast host. Material written by an AI, such as MCP proposals and interview notes, counts as 0 owner words, though a proposal still counts as an item.
+- **Your name** comes from `[owner] name` in `~/.config/liber/config.toml`:
+
+  ```toml
+  [owner]
+  name = "Your Name"
+  ```
+
+  If it is missing, liber falls back to `[interview] name`. If neither is set, owner words for transcripts are left out, and `liber stats` says so.
+- **The ledger** is `ledger.jsonl` at the vault root: one JSON line per captured item, append-only. Capture commands write to it but don't commit it. `/ingest` commits it as `ingest: ledger` along with its other commits. If Obsidian Sync leaves a conflict copy, `/ingest` merges it with `liber ledger merge`.
+
+`liber stats` prints the numbers. `--md` prints Markdown for pasting, and `--json` prints the raw report for other tools. For example:
+
+```
+liber has taken in 3 words I've written or said.
+It stores 0 facts about me (0 private).
+
+Input
+  note                     1 items            3 words            3 mine
+
+Output
+  facts                            0
+  ...
+```
+
+The report lists input by kind, what the vault stores, and month-by-month growth. It never prints item names, labels, keys or paths, so `--md` output is safe to paste publicly. Labels stay in the ledger, and `liber ledger list` is the only command that shows them.
+
+If your vault existed before this feature, run `liber ledger backfill` once. It records everything already archived in `sources/` as input, up to a cutoff date (`--cutoff YYYY-MM-DD`, default today) that is fixed by the first run. Items archived after the cutoff are recognized by content, so nothing is counted twice. For bulk imports that happen outside the CLI, use `liber ledger record`.
 
 ## Voice interviews
 
@@ -299,7 +335,12 @@ GitHub sign-ins last up to a year. They end when you run `liber logout-all`, rem
 | `liber note "text"` | Add a dated note to `inbox.md` |
 | `liber add <file>…` | Copy documents into `inbox/`, never overwriting |
 | `liber status` | Show waiting notes, documents (and whether they've been converted to text), and sync conflicts |
-| `liber ledger sweep [--notes]` | Record inbox items that arrived without a liber command (e.g. phone capture) in `ledger.jsonl`; `liber status` does this for files automatically |
+| `liber ledger sweep [--notes]` | Record inbox items that arrived without a liber command (for example phone capture) in `ledger.jsonl`. `--notes` also records pending `inbox.md` notes. `liber status` sweeps files automatically |
+| `liber ledger record --kind K --key KEY […]` | Record an input explicitly, for example a bulk import (`--items`, `--words`, `--owner-words`, `--audio-seconds`, `--years`, `--cost-usd` with `--cost-basis`, `--raw`, `--label`) |
+| `liber ledger list` | List ledger entries, oldest first. The only place labels are printed |
+| `liber ledger merge <copy>` | Fold a sync-conflict copy of `ledger.jsonl` into the ledger, then delete it |
+| `liber ledger backfill [--cutoff YYYY-MM-DD]` | Record everything already archived in `sources/` before the ledger began |
+| `liber stats [--md \| --json]` | Quotable numbers: what has gone into the vault, what it stores, and how it grew |
 | `liber extract` | Convert waiting PDF, Word, and HTML documents to Markdown text |
 | `liber archive <name>` | Move a processed document (and its text) to `sources/documents/`, printing the final name |
 | `liber archive --notes [--count N]` | Move processed notes (optionally only the first N) to `sources/notes/<YYYY-MM>.md` |

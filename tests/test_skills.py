@@ -8,7 +8,9 @@ from liber.scaffold import SKILL_NAMES, default_skills_dir
 
 
 def command_names():
-    return {cmd.name for cmd in app.registered_commands}
+    return {cmd.name for cmd in app.registered_commands} | {
+        grp.name for grp in app.registered_groups
+    }
 
 
 @pytest.mark.parametrize("name", SKILL_NAMES)
@@ -31,3 +33,10 @@ def test_real_skills_link_into_a_vault(tmp_path):
 
     init_vault(tmp_path / "v", default_skills_dir())
     assert (tmp_path / "v" / ".claude" / "skills" / "ingest" / "SKILL.md").is_file()
+
+
+def test_ingest_skill_sweeps_and_commits_ledger():
+    text = (default_skills_dir() / "ingest" / "SKILL.md").read_text()
+    assert "liber ledger sweep --notes" in text
+    assert "liber ledger merge" in text
+    assert "ingest: ledger" in text

@@ -12,8 +12,9 @@ You are updating **liber**, a knowledge base about its owner, who is the person 
 1. Run `git status --porcelain`. If anything is uncommitted, show it and offer to commit it first (`git add -A && git commit -m "manual edits"`), so each ingested item gets a clean commit of its own. Continue only once the tree is clean or the owner says to go ahead anyway.
 2. Run `liber check`.
    - For each `sync-conflict` file, compare it with the original, agree the merged text with the owner, write it into the original, and delete the conflict copy.
+   - If the sync-conflict copy is of `ledger.jsonl`, run `liber ledger merge <copy>`. It folds the copy in and deletes it, so no merge with the owner is needed.
    - Report other problems and offer to fix them.
-3. Run `liber extract`, then `liber status`.
+3. Run `liber ledger sweep --notes`, then `liber extract`, then `liber status`.
 4. Tell the owner what's waiting and the order you'll take: inbox notes first as one batch, then documents oldest first.
    - `no text found`: ask the owner to paste the text or skip the item. If they paste it, replace `inbox/<name>.md` with the pasted text.
    - `failed`: report the error and skip the item unless the owner can supply the text.
@@ -74,11 +75,12 @@ Then stop and wait. The owner answers in plain language, for example "all but 2"
    - Show the full new text and get approval separately.
    - Keep it within the size limit; `liber check` enforces this.
    - Commit with `ingest: refresh AGENTS.md`.
-3. **Push to the backup remote,** if the vault has one. This is the owner's standing request, so don't ask first.
+3. If `ledger.jsonl` changed, commit it: `git add ledger.jsonl && git commit -m "ingest: ledger"`.
+4. **Push to the backup remote,** if the vault has one. This is the owner's standing request, so don't ask first.
    - Run `git rev-parse --abbrev-ref --symbolic-full-name @{u}`. If there is no upstream, skip this step and say the vault has no remote.
    - If `origin` is on GitHub and `gh` is available, run `gh repo view <owner>/<repo> --json visibility` first. **Push only if it says `PRIVATE`.** If it says anything else, or the check fails, don't push. Warn the owner, because the vault must never be public.
    - Run `git push`. Never force-push. If the push is rejected or fails, report the error and leave it to the owner. The commits are safe locally.
-4. Give a short recap: items processed, files changed, questions added, anything skipped, and whether the push succeeded.
+5. Give a short recap: items processed, files changed, questions added, anything skipped, and whether the push succeeded.
 
 ## Rules
 
