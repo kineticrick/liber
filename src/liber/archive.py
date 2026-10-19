@@ -1,11 +1,15 @@
 """Moving processed inbox items into sources/."""
 
+import logging
 from datetime import datetime
 from pathlib import Path
 
+from liber import ledger
 from liber.errors import LiberError
 from liber.inbox import TEXT_SUFFIXES, inbox_template, pending_notes, sidecar_for
 from liber.paths import free_name
+
+log = logging.getLogger(__name__)
 
 
 def archive_document(vault: Path, name: str) -> list[Path]:
@@ -27,7 +31,18 @@ def archive_document(vault: Path, name: str) -> list[Path]:
     moved = [src.rename(dest_dir / final)]
     if sidecar.is_file():
         moved.append(sidecar.rename(dest_dir / f"{final}.md"))
+    _follow_in_ledger(vault, name, f"sources/documents/{final}")
     return moved
+
+
+def _follow_in_ledger(vault: Path, name: str, archived: str) -> None:
+    """Point the item's entry at its archived path, so a new file reusing the inbox name counts as a new item."""
+    try:
+        match = [e for e in ledger.load(vault).values() if e.path == f"inbox/{name}"]
+        if match:
+            ledger.amend(vault, match[-1].key, path=archived)
+    except OSError as exc:
+        log.warning("couldn't update the ledger entry for %s (%s)", name, exc)
 
 
 def archive_notes(vault: Path, now: datetime, count: int | None = None) -> Path | None:

@@ -108,3 +108,38 @@ def test_cli_archive(configured_vault):
     assert len(pending_notes(configured_vault)) == 1
     assert runner.invoke(app, ["archive"]).exit_code == 1
     assert runner.invoke(app, ["archive", "x.pdf", "--notes"]).exit_code == 1
+
+
+def test_reused_name_after_archive_is_a_new_item(vault, tmp_path):
+    from datetime import date
+
+    from liber import ledger
+    from liber.inbox import add_files
+
+    src = tmp_path / "x.md"
+    src.write_text("one two three", encoding="utf-8")
+    add_files(vault, [src])
+    archive_document(vault, "x.md")
+    write(vault / "inbox" / "x.md", "four five")
+    assert ledger.sweep(vault, date(2026, 10, 18), include_notes=False) == 1
+    entries = list(ledger.load(vault).values())
+    assert len(entries) == 2
+    assert entries[0].words == 3
+    assert entries[0].path == "sources/documents/x.md"
+
+
+def test_edit_before_archive_still_one_item(vault, tmp_path):
+    from datetime import date
+
+    from liber import ledger
+    from liber.inbox import add_files
+
+    src = tmp_path / "x.md"
+    src.write_text("one two three", encoding="utf-8")
+    add_files(vault, [src])
+    (vault / "inbox" / "x.md").write_text("one two three four", encoding="utf-8")
+    assert ledger.sweep(vault, date(2026, 10, 18), include_notes=False) == 0
+    archive_document(vault, "x.md")
+    entries = list(ledger.load(vault).values())
+    assert len(entries) == 1
+    assert entries[0].path == "sources/documents/x.md"
