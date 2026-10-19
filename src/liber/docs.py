@@ -38,16 +38,20 @@ def read_vault_file(vault: Path, path: Path) -> VaultFile:
     return VaultFile(path, path.relative_to(vault).as_posix(), text, meta, has_fm, error)
 
 
+def is_content_rel(rel: str) -> bool:
+    """Whether a vault-relative path is a Markdown file in a content folder (not root, exempt or hidden)."""
+    parts = rel.split("/")
+    if not rel.endswith(".md") or len(parts) == 1 or parts[0] in EXEMPT_DIRS:
+        return False
+    return not any(is_hidden_part(p) for p in parts[:-1])
+
+
 def content_paths(vault: Path) -> list[Path]:
     """Markdown files in content folders: not at the root, not exempt, not hidden. Sorted by relative path."""
     paths = []
     for path in vault.rglob("*.md"):
-        parts = path.relative_to(vault).parts
-        if len(parts) == 1 or parts[0] in EXEMPT_DIRS:
-            continue
-        if any(is_hidden_part(p) for p in parts[:-1]):
-            continue
-        paths.append(path)
+        if is_content_rel(path.relative_to(vault).as_posix()):
+            paths.append(path)
     return sorted(paths, key=lambda p: p.relative_to(vault).as_posix())
 
 
