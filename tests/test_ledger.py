@@ -191,3 +191,79 @@ def test_sweep_derived_counts_nothing(vault):
     assert ledger.sweep(vault, date(2026, 10, 18), include_notes=False) == 1
     (entry,) = ledger.load(vault).values()
     assert entry.kind == "derived" and entry.items == 0 and entry.words == 0 and entry.owner_words == 0
+
+
+# --- Task 4: merge and backfill ---
+
+import json
+import os
+import subprocess
+from datetime import date
+
+
+def _commit(vault, msg, day):
+    env = {**os.environ, "GIT_AUTHOR_DATE": f"{day}T12:00:00", "GIT_COMMITTER_DATE": f"{day}T12:00:00",
+           "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+    subprocess.run(["git", "-C", str(vault), "add", "-A"], check=True, env=env)
+    subprocess.run(["git", "-C", str(vault), "commit", "-q", "-m", msg], check=True, env=env)
+
+
+def test_merge_unions_keys(tmp_path):
+    ledger.record(tmp_path, _entry(key="a"))
+    ledger.record(tmp_path, _entry(key="b"))
+    other = tmp_path / "ledger.sync-conflict.jsonl"
+    other.write_text(
+        json.dumps({"key": "b", "kind": "document", "date": "2026-10-18", "tool": "x"}) + "\n"
+        + json.dumps({"key": "c", "kind": "document", "date": "2026-10-18", "tool": "x"}) + "\n", encoding="utf-8")
+    assert ledger.merge(tmp_path, other) == 1
+    assert set(ledger.load(tmp_path)) == {"a", "b", "c"}
+    assert not other.exists()
+
+
+def _archive_fixture(vault):
+    (vault / "sources" / "documents").mkdir(parents=True, exist_ok=True)
+    (vault / "sources" / "notes").mkdir(parents=True, exist_ok=True)
+    (vault / "sources" / "documents" / "x.md").write_text("hello there world", encoding="utf-8")
+    (vault / "sources" / "notes" / "2026-09.md").write_text(
+        "# Notes archived 2026-09\n\n## Archived 2026-09-05 10:00\n\n"
+        "- 2026-09-01 08:00 — first note here\n- 2026-09-02 09:00 — second\n", encoding="utf-8")
+
+
+def test_backfill_records_archived_sources_before_cutoff(vault):
+    _archive_fixture(vault)
+    _commit(vault, "archive", "2026-09-10")
+    assert ledger.backfill(vault, date.today()) == 3
+    assert ledger.backfill(vault, date.today()) == 0
+    entries = ledger.load(vault)
+    assert entries["meta:backfill"].items == 0
+    doc = entries[ledger.file_key(vault / "sources/documents/x.md")]
+    assert doc.date == "2026-09-10" and doc.tool == "backfill" and doc.words == 3
+    assert ledger.note_key("second") in entries
+
+
+def test_backfill_skips_items_already_recorded_under_another_path(vault):
+    (vault / "inbox").mkdir(exist_ok=True)
+    src = vault / "inbox" / "x.md"
+    src.write_text("same bytes", encoding="utf-8")
+    ledger.record(vault, _entry(key=ledger.file_key(src), path="inbox/x.md"))
+    (vault / "sources" / "documents").mkdir(parents=True, exist_ok=True)
+    src.rename(vault / "sources" / "documents" / "x-2.md")
+    _commit(vault, "archive", "2026-09-10")
+    assert ledger.backfill(vault, date.today()) == 0
+
+
+def test_backfill_respects_cutoff(vault):
+    _archive_fixture(vault)
+    _commit(vault, "archive", "2026-09-10")
+    assert ledger.backfill(vault, date(2026, 9, 1)) == 0
+    assert ledger.backfill(vault, date.today()) == 0  # the stored cutoff wins
+
+
+def test_backfill_amends_binary_with_sidecar_words(vault):
+    (vault / "sources" / "documents").mkdir(parents=True, exist_ok=True)
+    (vault / "sources" / "documents" / "a.pdf").write_bytes(b"%PDF-1.4 fake")
+    (vault / "sources" / "documents" / "a.pdf.md").write_text("one two three four", encoding="utf-8")
+    _commit(vault, "archive", "2026-09-10")
+    assert ledger.backfill(vault, date.today()) == 1
+    (e,) = [e for k, e in ledger.load(vault).items() if k != "meta:backfill"]
+    assert e.words == 4 and e.path == "sources/documents/a.pdf"

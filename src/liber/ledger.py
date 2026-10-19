@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import re
+import subprocess
 import tomllib
 from datetime import date, datetime
 from dataclasses import asdict, dataclass, field, fields, replace
@@ -55,6 +56,34 @@ def file_key(path: Path) -> str:
 
 def note_key(text: str) -> str:
     return "sha256:" + hashlib.sha256(" ".join(text.split()).encode()).hexdigest()
+
+
+def build_manual_entry(*, kind: str, key: str, day: str, items: int, words: int | None, owner_words: int | None,
+                       audio_seconds: int | None, years: str | None, cost_usd: float | None, cost_basis: str | None,
+                       raw: str | None, label: str | None, path: str | None, files: list[Path]) -> Entry:
+    """Validate the flags of `liber ledger record` and build the Entry."""
+    span: list[int] | None = None
+    if years:
+        try:
+            parts = [int(p) for p in years.split("-")]
+        except ValueError:
+            parts = []
+        if len(parts) not in (1, 2):
+            raise LiberError(f"--years must be Y or Y1-Y2, not '{years}'")
+        span = [parts[0], parts[-1]]
+    data: dict = {}
+    if raw:
+        try:
+            data = json.loads(raw)
+        except ValueError as exc:
+            raise LiberError(f"--raw is not valid JSON ({exc})")
+        if not isinstance(data, dict):
+            raise LiberError("--raw must be a JSON object")
+    if cost_usd is not None and not cost_basis:
+        raise LiberError("--cost-usd needs --cost-basis saying how it was figured")
+    return Entry(key=key, kind=kind, date=day, tool="liber ledger record", path=path, items=items, words=words,
+                 owner_words=owner_words, audio_seconds=audio_seconds, years=span, cost_usd=cost_usd,
+                 cost_basis=cost_basis, raw=data, label=label, files=[file_key(f) for f in files] or None)
 
 
 def load(vault: Path) -> dict[str, Entry]:
@@ -193,6 +222,25 @@ def _read(path: Path) -> str | None:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
+def _words_for(kind: str, text: str | None) -> tuple[int | None, int | None, int]:
+    """(words, owner_words, items) for an archived or inboxed text."""
+    if kind in ("proposal", "derived"):
+        return (0, 0, 0) if kind == "derived" else (word_count(text or ""), 0, 1)
+    words = word_count(text) if text is not None else None
+    interview = kind in ("talk-audio", "interview-written", "voice-interview")
+    owner = owner_words(text, owner_name()) if interview and text else words
+    return words, owner, 1
+
+
+_NOTE_LINE = re.compile(r"^-\s*(\d{4}-\d{2}-\d{2})\b[^—]*—\s*(.*)$")
+
+
+def parse_note_line(line: str) -> tuple[str | None, str]:
+    """(date or None, body) of a note line, normalized as sweep and backfill hash it."""
+    m = _NOTE_LINE.match(line)
+    return (m[1], m[2]) if m else (None, line.lstrip("-* ").strip())
+
+
 def sweep(vault: Path, today: date, include_notes: bool) -> int:
     """Record inbox items that arrived without a liber command; return how many are new."""
     from liber.inbox import is_sidecar, pending_notes  # inbox imports this module
@@ -208,12 +256,7 @@ def sweep(vault: Path, today: date, include_notes: bool) -> int:
             continue
         text = _read(path)
         kind = kind_for(path, text)
-        if kind in ("proposal", "derived"):
-            words, owner, items = (0, 0, 0) if kind == "derived" else (word_count(text or ""), 0, 1)
-        else:
-            words = word_count(text) if text is not None else None
-            owner = owner_words(text, owner_name()) if kind in ("talk-audio", "interview-written", "voice-interview") and text else words
-            items = 1
+        words, owner, items = _words_for(kind, text)
         day = datetime.fromtimestamp(path.stat().st_mtime).date().isoformat()
         known.add(key)
         recorded += record(vault, Entry(
@@ -221,11 +264,10 @@ def sweep(vault: Path, today: date, include_notes: bool) -> int:
             label=path.name, items=items, words=words, owner_words=owner))
     if include_notes:
         for line in pending_notes(vault):
-            m = re.match(r"^-\s*(\d{4}-\d{2}-\d{2})\b[^—]*—\s*(.*)$", line)
-            body = m[2] if m else line.lstrip("-* ").strip()
+            day, body = parse_note_line(line)
             n = word_count(body)
             recorded += record(vault, Entry(
-                key=note_key(body), kind="note", date=m[1] if m else today.isoformat(), tool="sweep",
+                key=note_key(body), kind="note", date=day or today.isoformat(), tool="sweep",
                 words=n, owner_words=n))
     for key, e in load(vault).items():
         if e.words is None and e.path:
@@ -234,4 +276,87 @@ def sweep(vault: Path, today: date, include_notes: bool) -> int:
                 text = sidecar.read_text(encoding="utf-8", errors="replace")
                 n = word_count(text)
                 amend(vault, key, words=n, owner_words=owner_words(text, owner_name()) if e.kind in ("talk-audio", "interview-written", "voice-interview") else n)
+    return recorded
+
+
+def merge(vault: Path, other: Path) -> int:
+    """Append the entries of a sync-conflict copy whose keys are new; delete the copy."""
+    have = set(load(vault))
+    added: set[str] = set()
+    for n, line in enumerate(other.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            obj = json.loads(line)
+            key = obj["key"]
+        except (ValueError, KeyError, TypeError) as exc:
+            log.warning("%s:%d: skipping bad ledger line (%s)", other, n, exc)
+            continue
+        if key in have:
+            continue
+        added.add(key)
+        _append(vault, obj)
+    other.unlink()
+    return len(added)
+
+
+def _git_added_date(vault: Path, path: Path) -> str:
+    rel = path.relative_to(vault).as_posix()
+    result = subprocess.run(["git", "-C", str(vault), "log", "--diff-filter=A", "--no-renames", "--format=%as", "--", rel],
+                            capture_output=True, text=True)
+    lines = result.stdout.split() if result.returncode == 0 else []
+    return lines[-1] if lines else datetime.fromtimestamp(path.stat().st_mtime).date().isoformat()
+
+
+def backfill(vault: Path, cutoff: date) -> int:
+    """Record everything archived in sources/ on or before the cutoff; return how many items are new."""
+    from liber.inbox import _is_note_line, is_sidecar  # inbox imports this module
+
+    entries = load(vault)
+    keys = known_file_keys(entries)
+
+    def put(entry: Entry) -> None:
+        _append(vault, {k: v for k, v in asdict(entry).items() if v is not None and k != "amends"})
+        keys.add(entry.key)
+
+    if "meta:backfill" in entries:
+        stored = entries["meta:backfill"].raw.get("backfill_cutoff")
+        cutoff = date.fromisoformat(stored) if stored else cutoff
+    else:
+        put(Entry(key="meta:backfill", kind="other", items=0, date=cutoff.isoformat(), tool="backfill",
+                  raw={"backfill_cutoff": cutoff.isoformat()}))
+    recorded = 0
+    sources = vault / "sources"
+    for path in sorted(p for p in sources.rglob("*") if p.is_file()) if sources.is_dir() else []:
+        if path.name.startswith(".") or is_sidecar(path):
+            continue
+        day = _git_added_date(vault, path)
+        if day > cutoff.isoformat():
+            continue
+        rel = path.relative_to(vault).as_posix()
+        if path.parent.name == "notes" and path.parent.parent.name == "sources" and re.fullmatch(r"\d{4}-\d{2}\.md", path.name):
+            for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+                if not _is_note_line(line):
+                    continue
+                note_day, body = parse_note_line(line.strip())
+                key = note_key(body)
+                if key in keys:
+                    continue
+                n = word_count(body)
+                put(Entry(key=key, kind="note", date=note_day or day, tool="backfill", path=rel, words=n, owner_words=n))
+                recorded += 1
+            continue
+        key = file_key(path)
+        if key in keys:
+            continue
+        text = _read(path)
+        kind = kind_for(path, text)
+        words, owner, items = _words_for(kind, text) if path.suffix.lower() in (".md", ".txt") else (None, None, 1)
+        put(Entry(key=key, kind=kind, date=day, tool="backfill", path=rel, label=path.name,
+                  items=items, words=words, owner_words=owner))
+        recorded += 1
+        if words is None and text is not None:
+            n = word_count(text)
+            _append(vault, {"key": key, "amends": True, "words": n,
+                            "owner_words": _words_for(kind, text)[1]})
     return recorded

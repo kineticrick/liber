@@ -19,6 +19,7 @@ from liber.config import resolve_vault, write_user_config
 from liber.errors import LiberError
 from liber.extract import extract_pending
 from liber.inbox import add_files, add_note, inbox_status
+from liber import ledger as ledger_mod
 from liber.ledger import sweep
 from liber.scaffold import default_skills_dir, init_vault
 from liber.server.settings import load_ceilings, load_secrets, load_server_settings
@@ -220,6 +221,66 @@ def ledger_sweep_cmd(
     with handle_errors():
         n = sweep(resolve_vault(), date.today(), include_notes=notes)
     typer.echo(f"Recorded {n} new item(s).")
+
+
+@ledger_app.command("record")
+def ledger_record_cmd(
+    kind: Annotated[str, typer.Option("--kind", help="note, document, journal, email, talk-audio, interview-written, voice-interview, proposal, derived or other.")],
+    key: Annotated[str, typer.Option("--key", help="A stable key, e.g. bulk:takeout-2026-10-18.")],
+    date_: Annotated[Optional[str], typer.Option("--date", help="YYYY-MM-DD (default today).")] = None,
+    items: Annotated[int, typer.Option("--items")] = 1,
+    words: Annotated[Optional[int], typer.Option("--words")] = None,
+    owner_words: Annotated[Optional[int], typer.Option("--owner-words")] = None,
+    audio_seconds: Annotated[Optional[int], typer.Option("--audio-seconds")] = None,
+    years: Annotated[Optional[str], typer.Option("--years", help="Y1-Y2, or a single year.")] = None,
+    cost_usd: Annotated[Optional[float], typer.Option("--cost-usd")] = None,
+    cost_basis: Annotated[Optional[str], typer.Option("--cost-basis", help="How the cost was figured; required with --cost-usd.")] = None,
+    raw: Annotated[Optional[str], typer.Option("--raw", help="A JSON object of extra facts.")] = None,
+    label: Annotated[Optional[str], typer.Option("--label")] = None,
+    path: Annotated[Optional[str], typer.Option("--path")] = None,
+    file: Annotated[Optional[list[Path]], typer.Option("--file", help="A file this entry covers; repeatable.")] = None,
+) -> None:
+    """Record an input explicitly (e.g. a bulk import)."""
+    with handle_errors():
+        entry = ledger_mod.build_manual_entry(
+            kind=kind, key=key, day=date_ or date.today().isoformat(), items=items, words=words,
+            owner_words=owner_words, audio_seconds=audio_seconds, years=years, cost_usd=cost_usd,
+            cost_basis=cost_basis, raw=raw, label=label, path=path, files=file or [])
+        new = ledger_mod.record(resolve_vault(), entry)
+    typer.echo("Recorded." if new else f"Already recorded: {key}")
+
+
+@ledger_app.command("list")
+def ledger_list_cmd() -> None:
+    """List ledger entries, oldest first (the only place labels are printed)."""
+    with handle_errors():
+        entries = list(ledger_mod.load(resolve_vault()).values())
+    for e in sorted(entries, key=lambda e: e.date):
+        typer.echo(f"{e.date}  {e.kind}  items={e.items}  words={e.words if e.words is not None else '-'}  {e.label or ''}".rstrip())
+
+
+@ledger_app.command("merge")
+def ledger_merge_cmd(other: Annotated[Path, typer.Argument(help="A sync-conflict copy of ledger.jsonl")]) -> None:
+    """Fold a sync-conflict copy of the ledger into ledger.jsonl, then delete it."""
+    with handle_errors():
+        if not other.is_file():
+            raise LiberError(f"{other} not found")
+        n = ledger_mod.merge(resolve_vault(), other)
+    typer.echo(f"Merged {n} {'entry' if n == 1 else 'entries'}.")
+
+
+@ledger_app.command("backfill")
+def ledger_backfill_cmd(
+    cutoff: Annotated[Optional[str], typer.Option("--cutoff", help="YYYY-MM-DD (default today); fixed by the first run.")] = None,
+) -> None:
+    """Record everything already archived in sources/ before the ledger began."""
+    with handle_errors():
+        try:
+            day = date.fromisoformat(cutoff) if cutoff else date.today()
+        except ValueError:
+            raise LiberError(f"--cutoff must be YYYY-MM-DD, not '{cutoff}'")
+        n = ledger_mod.backfill(resolve_vault(), day)
+    typer.echo(f"Backfilled {n} item(s).")
 
 
 token_app = typer.Typer(no_args_is_help=True, help="Manage service tokens for the HTTP server (e.g. the voice backend).")
