@@ -78,6 +78,7 @@ To seed liber from notes you already have in another Obsidian vault, copy them i
    - `liber bundle --topics career,finance,goals,core --copy` puts a single document on your clipboard, ready to paste into any chatbot.
    - For example: "Given everything about me, what new revenue sources should I pursue?"
    - Bundles stop at `personal` by default. Add `--max-sensitivity private` only when pasting into a chat you trust with your private files.
+   - To have an AI write in your voice, point it at `core/writing-style.md` (how you write, by register) and `core/writing-examples.md` (real examples, private). A short global Claude Code skill in `~/.claude/skills/` that reads both through the MCP server works well; tell it to match the examples' density and never to add private facts to a draft.
 4. **Review:** run `/review` every month or so.
    - It finds uncaptured parts of your life, stale facts, and structural improvements.
    - It adds questions to `open-questions.md`. Questions that would reveal private information go in the relevant private file instead (see [Health and finance](#health-and-finance)).
@@ -93,7 +94,7 @@ To seed liber from notes you already have in another Obsidian vault, copy them i
 | `open-questions.md` | Gaps to fill later |
 | `ledger.jsonl` | The input ledger: one line per captured item, written by the capture commands and committed by `/ingest` (see [Tallies](#tallies)) |
 | `core/`, `career/`, `people/`, `interests/`, `health/`, `finance/`, `goals/`, `log/` | Your knowledge base |
-| `sources/` | The originals everything came from: notes, documents, and (later) interviews |
+| `sources/` | The originals everything came from: notes and documents, including interview and talk transcripts |
 | `_templates/` | Obsidian templates, for example `person.md` |
 
 The structure is meant to grow. When Claude suggests a new folder and you approve it, the folder is added to `liber.toml`, and `liber check` accepts it from then on.
