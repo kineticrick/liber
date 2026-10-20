@@ -51,7 +51,8 @@ This creates the folders and starter files, links the skills into `.claude/skill
 2. **Settings → Sync:** create a new remote vault for it. Keep it separate from any other vault.
 3. **Sync settings:** turn on syncing for **PDFs** and **other file types**, so documents saved into `inbox/` on the phone reach the desktop.
 4. **Settings → Templates:** set the template folder to `_templates`. This lets you create people with the `person` template.
-5. On your Android phone: open Obsidian, connect to the same remote vault, and add thoughts to `inbox.md` whenever you like.
+5. **Settings → Daily notes,** for journaling: set the new file location to `inbox`, the date format to `[journal-]YYYY-MM-DD` and the template to `_templates/journal`. "Open today's daily note" then creates `inbox/journal-<date>.md`. In **Sync settings**, turn on **Core plugin settings** so the phone uses the same setup.
+6. On your Android phone: open Obsidian, connect to the same remote vault, and add thoughts to `inbox.md` whenever you like.
 
 git runs on the desktop only. Obsidian Sync doesn't sync hidden folders like `.git/`, so there's nothing to exclude.
 
@@ -69,6 +70,7 @@ To seed liber from notes you already have in another Obsidian vault, copy them i
 1. **Capture:**
    - Add a line to `inbox.md` (from your phone or desktop), or run `liber note "..."`.
    - Drop documents into `inbox/`, or run `liber add file.pdf`.
+   - Journal in Obsidian's daily note (see [Obsidian and phone sync](#obsidian-and-phone-sync-obsidian-sync)). Any inbox file with "journal" in its name counts as a journal in `liber stats`, and `/ingest` files what it learns from it in `private` files unless you say otherwise.
    - Let your AI sessions propose additions as you work (see [Passive capture](#passive-capture-from-ai-sessions)).
 2. **Ingest:** open Claude Code in your vault and run `/ingest`.
    - Claude proposes dated, sourced edits, flags contradictions, and suggests structural changes.

@@ -21,7 +21,7 @@ def test_layout(vault):
         "AGENTS.md", "CLAUDE.md", "README.md", "inbox.md", "open-questions.md", "liber.toml", ".gitignore",
         "core/identity.md", "core/personality.md", "core/values.md", "core/preferences.md",
         "career/timeline.md", "career/skills.md", "goals/current.md", "health/overview.md", "finance/overview.md", "log/2026.md",
-        "_templates/person.md", "inbox/.gitkeep", "people/.gitkeep", "interests/.gitkeep",
+        "_templates/person.md", "_templates/journal.md", "inbox/.gitkeep", "people/.gitkeep", "interests/.gitkeep",
         "career/projects/.gitkeep", "sources/notes/.gitkeep", "sources/documents/.gitkeep",
         "sources/interviews/.gitkeep",
     ]:
@@ -35,6 +35,7 @@ def test_rendering(vault):
     assert "# 2026" in (vault / "log/2026.md").read_text()
     person = (vault / "_templates/person.md").read_text()
     assert "{{date}}" in person and "{{title}}" in person
+    assert "{{date:dddd, MMMM D, YYYY}}" in (vault / "_templates/journal.md").read_text()
     assert "{{today}}" not in (vault / "AGENTS.md").read_text()
 
 

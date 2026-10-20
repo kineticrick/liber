@@ -89,6 +89,11 @@ Then stop and wait. The owner answers in plain language, for example "all but 2"
 - **Distill long documents instead of copying them.** The full text stays in `sources/`.
 - **Keep notes about other people factual and kind.**
 - **Actively suggest structure.** When an item has no good home, a file is sprawling, or a new field would help, propose the change.
+- **Journal entries are private by default.** For an inbox file with "journal" in its name:
+  - File its facts in `private` files, such as `core/inner-life.md`, `core/relationships.md` or the private file for the topic. Propose a new private file when none fits.
+  - Propose a `personal` file or a `log/` entry only for a fact that is clearly not sensitive, such as a job change the vault already records. Mark it **(not private)** in the proposal so the owner decides.
+  - Open questions go in the private file's `## Open questions` section.
+  - The date in the file name (`journal-YYYY-MM-DD.md`) is the entry's date.
 - **Never record account numbers, logins, passwords, or similar identifiers** in the vault, even in private files. Summarize financial documents instead.
 - **Never edit anything in `sources/`.**
 - **The owner's word wins.** Record their correction, not your first reading.
