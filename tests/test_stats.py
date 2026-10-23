@@ -308,3 +308,12 @@ def test_output_words_row_says_stored(vault):
     rep = stats.build_report(vault, date(2026, 10, 18))
     assert any(l.strip().startswith("words stored ") for l in stats.render_text(rep).splitlines())
     assert "| words stored |" in stats.render_markdown(rep)
+
+
+def test_message_kind_counts_owner_words_only(vault):
+    from liber import ledger
+    ledger.record(vault, _entry("m", kind="message", items=90_000, words=2_700_000, owner_words=1_100_000, years=[2017, 2026]))
+    report = stats.build_report(vault, date(2026, 10, 18))
+    row = next(r for r in report["input"] if r["kind"] == "message")
+    assert (row["items"], row["words"], row["owner_words"]) == (90_000, 2_700_000, 1_100_000)
+    assert stats.render_text(report).splitlines()[0].startswith("liber has taken in 1,100,000 words")

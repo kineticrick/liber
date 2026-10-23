@@ -243,7 +243,7 @@ def ledger_sweep_cmd(
 
 @ledger_app.command("record")
 def ledger_record_cmd(
-    kind: Annotated[str, typer.Option("--kind", help="note, document, journal, email, talk-audio, interview-written, voice-interview, proposal, derived or other.")],
+    kind: Annotated[str, typer.Option("--kind", help="note, document, journal, email, message (texts and chats), talk-audio, interview-written, voice-interview, proposal, derived or other.")],
     key: Annotated[str, typer.Option("--key", help="A stable key, e.g. bulk:takeout-2026-10-18.")],
     date_: Annotated[Optional[str], typer.Option("--date", help="YYYY-MM-DD (default today).")] = None,
     items: Annotated[int, typer.Option("--items")] = 1,

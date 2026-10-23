@@ -17,7 +17,7 @@ from liber.errors import LiberError
 log = logging.getLogger(__name__)
 
 KINDS = frozenset({
-    "note", "document", "journal", "email", "talk-audio", "interview-written",
+    "note", "document", "journal", "email", "message", "talk-audio", "interview-written",
     "voice-interview", "proposal", "derived", "other",
 })
 
