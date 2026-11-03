@@ -72,6 +72,27 @@ def test_refuses_existing_secrets_without_force(with_config, creds):
     assert load_secrets().jwt_signing_key != first_key
 
 
+def test_init_runs_when_secrets_hold_only_other_keys(with_config, creds):
+    from liber.server.settings import read_secret_values, write_secret_values
+    write_secret_values({"anthropic_api_key": "sk-ant-x", "assemblyai_api_key": "aai-x"})
+    run_init(creds)
+    values = read_secret_values()
+    assert values["anthropic_api_key"] == "sk-ant-x" and values["assemblyai_api_key"] == "aai-x"
+    assert load_secrets().github_client_id == "Ov23id"
+
+
+def test_cli_init_runs_when_secrets_hold_only_other_keys(with_config, creds, monkeypatch):
+    from liber.server.settings import read_secret_values, write_secret_values
+    monkeypatch.setattr(server_setup, "require_command", lambda name: f"/usr/bin/{name}")
+    write_secret_values({"anthropic_api_key": "sk-ant-x"})
+    result = CliRunner().invoke(
+        app, ["server", "init", "--tunnel-credentials", str(creds)],
+        input="https://liber.example.com\nrick\nOv23id\ntopsecretvalue\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert read_secret_values()["anthropic_api_key"] == "sk-ant-x"
+
+
 def test_existing_server_section_and_files_are_kept(with_config, creds):
     with user_config_path().open("a", encoding="utf-8") as handle:
         handle.write('\n[server]\nbase_url = "https://other.example.com"\nallowed_github_logins = ["someone"]\n')

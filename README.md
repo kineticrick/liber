@@ -302,7 +302,7 @@ The HTTP server runs on your desktop and is reached through a Cloudflare Tunnel,
    - two systemd user services
    - `~/.cloudflared/liber.yml`
 
-   `liber server init` needs `liber` and `cloudflared` on your PATH and expects exactly one tunnel credentials file in `~/.cloudflared/` (otherwise pass `--tunnel-credentials <file>`). Re-running it is refused once `secrets.toml` exists; `--force` replaces the secrets and signs out every connected app.
+   `liber server init` needs `liber` and `cloudflared` on your PATH and expects exactly one tunnel credentials file in `~/.cloudflared/` (otherwise pass `--tunnel-credentials <file>`). Other keys already in `secrets.toml`, such as the voice API keys, are kept. Re-running it is refused once the server secrets are there; `--force` replaces them and signs out every connected app.
 5. **Start the services:**
    ```bash
    systemctl --user daemon-reload

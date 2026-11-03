@@ -11,7 +11,8 @@ from urllib.parse import urlparse
 from liber.config import user_config_path
 from liber.errors import LiberError
 from liber.server.settings import (
-    DEFAULT_PORT, Secrets, new_jwt_signing_key, new_storage_key, secrets_path, write_secrets,
+    DEFAULT_PORT, SECRET_KEYS, Secrets, new_jwt_signing_key, new_storage_key, read_secret_values, secrets_path,
+    write_secrets,
 )
 
 MCP_UNIT = "liber-mcp.service"
@@ -115,10 +116,14 @@ def _write_if_new(path: Path, content: str, force: bool, written: list[Path], ke
 
 
 def check_secrets_absent(force: bool) -> None:
-    """Raise LiberError if secrets exist and force is False."""
-    if secrets_path().exists() and not force:
+    """Raise LiberError if server secrets already exist and force is False.
+
+    Other keys in secrets.toml (e.g. voice API keys) don't count; init keeps them.
+    """
+    existing = read_secret_values()
+    if not force and any(key in existing for key in SECRET_KEYS):
         raise LiberError(
-            f"{secrets_path()} already exists; rerun with --force to replace it (this logs out every connected app)"
+            f"{secrets_path()} already has server secrets; rerun with --force to replace them (this logs out every connected app)"
         )
 
 
