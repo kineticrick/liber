@@ -30,6 +30,31 @@ async def test_tools_are_registered_with_descriptions(configured_vault):
         assert "user" in tool.description.lower()
 
 
+def _asks_for_proactive_capture(text: str) -> None:
+    lowered = text.lower()
+    for phrase in ("drafts", "opinions", "preferences", "without asking", "health", "secrets", "one short line"):
+        assert phrase in lowered, phrase
+
+
+async def test_propose_update_description_asks_for_proactive_capture(configured_vault):
+    async with Client(build_server("stdio", CEIL)) as c:
+        tools = {t.name: t for t in await c.list_tools()}
+    _asks_for_proactive_capture(tools["propose_update"].description)
+
+
+def test_server_instructions_mention_proactive_capture():
+    instructions = build_server("stdio", CEIL).instructions
+    assert "propose_update" in instructions
+    assert "without asking" in instructions.lower()
+
+
+async def test_profile_carries_contributing_guidance(configured_vault):
+    async with Client(build_server("stdio", CEIL)) as c:
+        profile = (await c.call_tool("get_user_profile", {})).data
+    assert "propose_update" in profile["contributing"]
+    _asks_for_proactive_capture(profile["contributing"])
+
+
 async def test_stdio_mode_uses_local_ceiling(configured_vault):
     write(configured_vault / "core" / "priv.md", fm("core", "private", "PRIVMARK"))
     async with Client(build_server("stdio", CEIL)) as c:

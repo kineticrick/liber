@@ -254,7 +254,13 @@ Much of what's worth knowing about you comes out while you're doing something el
    ```
 3. Restart running Claude Code sessions. They load `CLAUDE.md` and MCP servers only at startup.
 
-For claude.ai, add liber as a connector (see [Cloud apps](#cloud-apps-one-time-setup)) and put a short version of the instruction in your profile preferences.
+**Other agents and chat apps** (claude.ai, Duet, ChatGPT, anything connected over MCP) don't read your `CLAUDE.md`. liber tells them itself: the server's instructions, the `propose_update` description and the `get_user_profile` result (its `contributing` field) all ask the agent to watch for the same kinds of evidence. Agents propose **without asking first**, since `/ingest` is the review, and then mention what they noted in one short line. They ask first for anything about health, money or other people's private matters.
+
+That guidance only reaches an agent once it uses liber. To make claude.ai and Duet use liber in conversations that aren't about you, add liber as a connector (see [Cloud apps](#cloud-apps-one-time-setup)) and add a line like this to your profile preferences (Settings → Profile):
+
+```text
+I keep a personal knowledge base called liber (connector). When you notice something lasting about how I write or think, my opinions, preferences, values or goals, propose it to liber with propose_update and tell me in one line.
+```
 
 ## Connect your AI tools
 
